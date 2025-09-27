@@ -15,14 +15,28 @@ def load_mnist(filepath):
     mnist_train = pd.read_csv(filepath)
     labels = []
     images = []
-    for _, row in tqdm.tqdm(mnist_train.iterrows()):
-        pict = np.zeros((28, 28), dtype=np.float32)
-        for j in range(28):
-            for k in range(28):
-                pict[j, k] = row[f'{j + 1}x{k + 1}']
-        labels.append(row['label'])
-        images.append(pict)
-        break
+
+    # I found a faster way ^_^
+    # mnist_train is a DataFrame object - the .iloc method lets us manipulate it like a numpy
+    # array - and then we can just turn it into a numpy array and change its view (~O(1) time)
+    progress_bar = tqdm.tqdm(range(len(mnist_train)), desc="Loading Dataset")
+    for _, row in enumerate(progress_bar):
+        labels.append(mnist_train.iloc[row, 0])
+        images.append(mnist_train.iloc[row, 1:].to_numpy().reshape((28,28)))
+
+    # it = 0
+    # for _, row in tqdm.tqdm(mnist_train.iterrows()):
+    #     pict = np.zeros((28, 28), dtype=np.float32)
+    #     for j in range(28):
+    #         for k in range(28):
+    #             pict[j, k] = row[f'{j + 1}x{k + 1}']
+    #     labels.append(row['label'])
+    #     images.append(pict)
+    #
+    #     it+=1
+    #     if it >= max_loaded:
+    #         break
+
     return labels, images
 
 '''
@@ -39,7 +53,7 @@ def to_patches(image):
         for j in range(7):
             patch = np.array(image[4 * i: 4 * (i + 1), 4 * j: 4 * (j + 1)])
             patched_image[i][j] = 2 * (patch.flatten() / 255) - 1
-    patched_tensor = torch.tensor(patched_image)
+    patched_tensor = torch.tensor(patched_image, dtype=torch.float32)
     return patched_tensor
 
 
@@ -57,8 +71,9 @@ class PixelDataset(Dataset):
     def __getitem__(self, idx):
         return self.patched_images[idx], self.labels[idx]
 
-pixel = PixelDataset('Datasets/mnist_train.csv')
+if __name__ == "__main__":
+    pixel = PixelDataset('Datasets/mnist_train.csv')
 
-im = pixel.raw_images[0]
-show(im)
-show(2 *(im/255) - 1)
+    im = pixel.raw_images[0]
+    show(im)
+    show(2 *(im/255) - 1)

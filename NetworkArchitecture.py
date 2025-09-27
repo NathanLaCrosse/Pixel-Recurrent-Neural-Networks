@@ -46,7 +46,7 @@ class TwoDimensionalGRU(nn.Module):
 
         last_col = None
         for row in range(pr):
-            last_col = torch.zeros((batch_size, self.hidden_size)) # Initialize last memory column
+            last_col = torch.zeros((batch_size, self.hidden_size),dtype=torch.float32) # Initialize last memory column
 
             for col in range(pc):
                 last_row = previous_row[:, col, :] # Now is (batch_size, hidden_size)
