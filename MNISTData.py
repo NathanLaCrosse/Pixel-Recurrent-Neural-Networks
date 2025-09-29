@@ -3,7 +3,7 @@ import torch
 import pandas as pd
 import tqdm as tqdm
 import matplotlib.pyplot as plt
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
 # For Testing
 def show(im):
@@ -29,34 +29,23 @@ def load_mnist(filepath, samples=1000000000):
         if its > samples:
             break
 
-    # it = 0
-    # for _, row in tqdm.tqdm(mnist_train.iterrows()):
-    #     pict = np.zeros((28, 28), dtype=np.float32)
-    #     for j in range(28):
-    #         for k in range(28):
-    #             pict[j, k] = row[f'{j + 1}x{k + 1}']
-    #     labels.append(row['label'])
-    #     images.append(pict)
-    #
-    #     it+=1
-    #     if it >= max_loaded:
-    #         break
-
     return labels, images
 
-'''
-Dataloader: (Tentative: 7, 7, 16)
-Patch_Rows: How many patches per row
-Patch_Cols: How many patches per column
-Patch_Size: Number of pixels per patch 
-'''
+def to_patches(image, prc_len):
+    """
+    Assumptions: Example Image is always square, Image is grayscale
+    prc_len: Length of patch rows and columns
+    Patch_Size: Number of pixels per patch
+    """
 
+    patch_len = int(len(image[0]) / prc_len)
+    patch_size = int(patch_len**2)
+    patched_image = np.empty((prc_len, prc_len, patch_size))
 
-def to_patches(image):
-    patched_image = np.empty((7, 7, 16))
-    for i in range(7):
-        for j in range(7):
-            patch = np.array(image[4 * i: 4 * (i + 1), 4 * j: 4 * (j + 1)])
+    for i in range(prc_len):
+        for j in range(prc_len):
+            patch = np.array(image[patch_len * i: patch_len * (i + 1),
+                                        patch_len * j: patch_len * (j + 1)])
             patched_image[i][j] = 2 * (patch.flatten() / 255) - 1
     patched_tensor = torch.tensor(patched_image, dtype=torch.float32)
     return patched_tensor
@@ -64,10 +53,10 @@ def to_patches(image):
 
 class PixelDataset(Dataset):
 
-    def __init__(self, filepath = 'Datasets/mnist_train.csv', samples=1000000):
+    def __init__(self, filepath = 'Datasets/mnist_train.csv', prc_len = 7, samples=1000000):
         labels, images = load_mnist(filepath, samples=samples)
         self.labels = labels
-        self.patched_images = [to_patches(im) for im in images]
+        self.patched_images = [to_patches(im, prc_len) for im in tqdm.tqdm(images)]
         self.raw_images = images
 
     def __len__(self):
@@ -77,8 +66,7 @@ class PixelDataset(Dataset):
         return self.patched_images[idx], self.labels[idx]
 
 if __name__ == "__main__":
-    pixel = PixelDataset('Datasets/mnist_train.csv')
+    pixel = PixelDataset('Datasets/mnist_train.csv', 7)
 
-    im = pixel.raw_images[0]
-    show(im)
-    show(2 *(im/255) - 1)
+    # im = pixel.raw_images[0]
+    # show(im)
