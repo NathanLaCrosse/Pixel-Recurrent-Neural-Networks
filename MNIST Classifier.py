@@ -10,55 +10,71 @@ class TwoDGRUClassifier(nn.Module):
     def __init__(self, input_size, embed_size, hidden_size, classification_count):
         super(TwoDGRUClassifier, self).__init__()
 
-        self.recurrent = na.TwoDimensionalGRU(input_size=input_size, embedding_size=embed_size, hidden_size=hidden_size)
-        self.to_out = nn.Linear(hidden_size, classification_count)
+        self.recurrent = na.OmniDirectionalTwoDimensionalGRU(input_size=input_size, embedding_size=embed_size, hidden_size=hidden_size, dropout=0)
+        self.expressive = nn.Sequential(
+            nn.Linear(hidden_size*4, hidden_size*2),
+            nn.ReLU(),
+            nn.Linear(hidden_size*2, hidden_size * 2),
+            nn.ReLU(),
+        )
+        self.to_out = nn.Linear(hidden_size*2, classification_count)
 
     def forward(self, x):
         h_n = self.recurrent(x)
+        h_n = self.expressive(h_n)
         return self.to_out(h_n)
 
 
-epochs = 5
+epochs = 10
 
 dat = md.PixelDataset()
-dat_loader = DataLoader(dat, batch_size=16, shuffle=True)
 
 net = TwoDGRUClassifier(16, embed_size=20, hidden_size=50, classification_count=10)
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
+optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
 
-progress_bar = tqdm(dat_loader, desc=f"Epoch {0 + 1}/{epochs}")
-running_loss = 0.0
-for _, batch in enumerate(progress_bar):
-    ims, label = batch
+for epoch in range(epochs):
+    dat_loader = DataLoader(dat, batch_size=64, shuffle=True)
+    progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
+    running_loss = 0.0
+    net = net.train()
+    for _, batch in enumerate(progress_bar):
+        ims, label = batch
 
-    optimizer.zero_grad()
-    output = net(ims)
+        optimizer.zero_grad()
+        output = net(ims)
 
-    loss = loss_fn(output, label)
-    loss.backward()
-    torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) # Gradient clipping
-    optimizer.step()
+        loss = loss_fn(output, label)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) # Gradient clipping
+        optimizer.step()
 
-    progress_bar.set_postfix({'loss': loss.item()})
-    running_loss += loss.item()
+        progress_bar.set_postfix({'loss': loss.item()})
+        running_loss += loss.item()
 
-    progress_bar.set_description(desc=f"Loss: {loss}")
+        # progress_bar.set_description(desc=f"Loss: {loss}")
 
-# Test performance
-evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+        # Reduce learning rate:
+        if loss.item() < 0.5:
+            for param_group in optimizer.param_groups:
+                param_group["lr"] *= 0.9
 
-# net = net.eval()
-with torch.no_grad():
-    correct = 0
-    for im, label in evil_dat:
-        logits = net(im.view(1, 7, 7, 16))
+    # Test performance
+    evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv")
 
-        max_dex = torch.argmax(logits).item()
+    # net = net.eval()
+    with torch.no_grad():
+        correct = 0
+        for im, label in evil_dat:
+            logits = net(im.view(1, 7, 7, 16))
 
-        if max_dex == label:
-            correct += 1
+            max_dex = torch.argmax(logits).item()
 
-    correct = correct / len(evil_dat)
+            if max_dex == label:
+                correct += 1
 
-    print(f"Test Accuracy: {correct}")
+        correct = correct / len(evil_dat)
+
+        print(f"Test Accuracy: {correct}")
+
+    torch.save(net.state_dict(), "Omni.pt")
