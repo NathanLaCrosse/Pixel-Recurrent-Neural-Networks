@@ -11,17 +11,17 @@ class TwoDGRUClassifier(nn.Module):
         super(TwoDGRUClassifier, self).__init__()
 
         self.recurrent = na.OmniDirectionalTwoDimensionalGRU(input_size=input_size, embedding_size=embed_size, hidden_size=hidden_size, dropout=0)
-        self.expressive = nn.Sequential(
-            nn.Linear(hidden_size*4, hidden_size*2),
-            nn.ReLU(),
-            nn.Linear(hidden_size*2, hidden_size * 2),
-            nn.ReLU(),
-        )
-        self.to_out = nn.Linear(hidden_size*2, classification_count)
+        # self.expressive = nn.Sequential(
+        #     nn.Linear(hidden_size*4, hidden_size*2),
+        #     nn.ReLU(),
+        #     nn.Linear(hidden_size*2, hidden_size * 2),
+        #     nn.ReLU(),
+        # )
+        self.to_out = nn.Linear(hidden_size*4, classification_count)
 
     def forward(self, x):
         h_n = self.recurrent(x)
-        h_n = self.expressive(h_n)
+        # h_n = self.expressive(h_n)
         return self.to_out(h_n)
 
 
@@ -30,8 +30,8 @@ epochs = 10
 dat = md.PixelDataset()
 
 net = TwoDGRUClassifier(16, embed_size=20, hidden_size=50, classification_count=10)
-loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
-optimizer = torch.optim.Adam(net.parameters(), lr=0.0001)
+loss_fn = nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
     dat_loader = DataLoader(dat, batch_size=64, shuffle=True)
@@ -55,12 +55,12 @@ for epoch in range(epochs):
         # progress_bar.set_description(desc=f"Loss: {loss}")
 
         # Reduce learning rate:
-        if loss.item() < 0.5:
-            for param_group in optimizer.param_groups:
-                param_group["lr"] *= 0.9
+        # if loss.item() < 0.5:
+        #     for param_group in optimizer.param_groups:
+        #         param_group["lr"] *= 0.9
 
     # Test performance
-    evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+    evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv", samples=500)
 
     # net = net.eval()
     with torch.no_grad():

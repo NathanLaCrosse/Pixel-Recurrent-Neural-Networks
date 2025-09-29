@@ -11,7 +11,7 @@ def show(im):
     plt.show()
 
   # MNIST Images are 28 x 28 pixels
-def load_mnist(filepath):
+def load_mnist(filepath, samples=1000000000):
     mnist_train = pd.read_csv(filepath)
     labels = []
     images = []
@@ -20,9 +20,14 @@ def load_mnist(filepath):
     # mnist_train is a DataFrame object - the .iloc method lets us manipulate it like a numpy
     # array - and then we can just turn it into a numpy array and change its view (~O(1) time)
     progress_bar = tqdm.tqdm(range(len(mnist_train)), desc="Loading Dataset")
+    its = 0
     for _, row in enumerate(progress_bar):
         labels.append(mnist_train.iloc[row, 0])
         images.append(mnist_train.iloc[row, 1:].to_numpy().reshape((28,28)))
+
+        its += 1
+        if its > samples:
+            break
 
     # it = 0
     # for _, row in tqdm.tqdm(mnist_train.iterrows()):
@@ -59,8 +64,8 @@ def to_patches(image):
 
 class PixelDataset(Dataset):
 
-    def __init__(self, filepath = 'Datasets/mnist_train.csv'):
-        labels, images = load_mnist(filepath)
+    def __init__(self, filepath = 'Datasets/mnist_train.csv', samples=1000000):
+        labels, images = load_mnist(filepath, samples=samples)
         self.labels = labels
         self.patched_images = [to_patches(im) for im in images]
         self.raw_images = images
