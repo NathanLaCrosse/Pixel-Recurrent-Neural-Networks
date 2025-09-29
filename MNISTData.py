@@ -11,14 +11,11 @@ def show(im):
     plt.show()
 
   # MNIST Images are 28 x 28 pixels
-def load_mnist(filepath, samples=1000000000):
+def load_mnist(filepath, samples=60000):
     mnist_train = pd.read_csv(filepath)
     labels = []
     images = []
 
-    # I found a faster way ^_^
-    # mnist_train is a DataFrame object - the .iloc method lets us manipulate it like a numpy
-    # array - and then we can just turn it into a numpy array and change its view (~O(1) time)
     progress_bar = tqdm.tqdm(range(len(mnist_train)), desc="Loading Dataset")
     its = 0
     for _, row in enumerate(progress_bar):
@@ -35,7 +32,7 @@ def to_patches(image, prc_len):
     """
     Assumptions: Example Image is always square, Image is grayscale
     prc_len: Length of patch rows and columns
-    Patch_Size: Number of pixels per patch
+    patch_size: Number of pixels per patch
     """
 
     patch_len = int(len(image[0]) / prc_len)
