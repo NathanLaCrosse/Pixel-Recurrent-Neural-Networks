@@ -10,18 +10,11 @@ class TwoDGRUClassifier(nn.Module):
     def __init__(self, input_size, embed_size, hidden_size, classification_count):
         super(TwoDGRUClassifier, self).__init__()
 
-        self.recurrent = na.OmniDirectionalTwoDimensionalGRU(input_size=input_size, embedding_size=embed_size, hidden_size=hidden_size, dropout=0)
-        # self.expressive = nn.Sequential(
-        #     nn.Linear(hidden_size*4, hidden_size*2),
-        #     nn.ReLU(),
-        #     nn.Linear(hidden_size*2, hidden_size * 2),
-        #     nn.ReLU(),
-        # )
+        self.recurrent = na.TwoDimensionalGRU(input_size, embedding_size=embed_size, hidden_size=hidden_size,num_layers=3,omnidirectionality=True)
         self.to_out = nn.Linear(hidden_size*4, classification_count)
 
     def forward(self, x):
-        h_n = self.recurrent(x)
-        # h_n = self.expressive(h_n)
+        _, h_n = self.recurrent(x)
         return self.to_out(h_n)
 
 
@@ -60,7 +53,7 @@ for epoch in range(epochs):
         #         param_group["lr"] *= 0.9
 
     # Test performance
-    evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv", samples=500)
+    evil_dat = md.PixelDataset(filepath="Datasets/mnist_test.csv", samples=3000)
 
     # net = net.eval()
     with torch.no_grad():
