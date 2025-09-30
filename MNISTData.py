@@ -5,12 +5,12 @@ import tqdm as tqdm
 import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 
-# For Testing
+  # For Testing
 def show(im):
     plt.imshow(im, cmap='grey')
     plt.show()
 
-  # MNIST Images are 28 x 28 pixels
+   # MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
     mnist_train = pd.read_csv(filepath)
     labels = []
@@ -36,14 +36,10 @@ def to_patches(image, prc_len):
     """
 
     patch_len = int(len(image[0]) / prc_len)
-    patch_size = int(patch_len**2)
-    patched_image = np.empty((prc_len, prc_len, patch_size))
-
-    for i in range(prc_len):
-        for j in range(prc_len):
-            patch = np.array(image[patch_len * i: patch_len * (i + 1),
-                                        patch_len * j: patch_len * (j + 1)])
-            patched_image[i][j] = 2 * (patch.flatten() / 255) - 1
+    patch_size = int(patch_len ** 2)
+    patched_image = image.reshape(prc_len, patch_len, prc_len, patch_len)
+    patched_image = patched_image.transpose(0, 2, 1, 3)
+    patched_image = patched_image.reshape(prc_len, prc_len, patch_size)
     patched_tensor = torch.tensor(patched_image, dtype=torch.float32)
     return patched_tensor
 
@@ -65,5 +61,5 @@ class PixelDataset(Dataset):
 if __name__ == "__main__":
     pixel = PixelDataset('Datasets/mnist_train.csv', 7)
 
-    # im = pixel.raw_images[0]
-    # show(im)
+    im = pixel.raw_images[0]
+    show(im)
