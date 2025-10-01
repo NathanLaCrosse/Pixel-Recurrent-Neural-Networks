@@ -35,6 +35,7 @@ def to_patches(image, prc_len):
     patch_size: Number of pixels per patch
     """
 
+    image = image / 255 * 2 - 1
     patch_len = int(len(image[0]) / prc_len)
     patch_size = int(patch_len ** 2)
     patched_image = image.reshape(prc_len, patch_len, prc_len, patch_len)

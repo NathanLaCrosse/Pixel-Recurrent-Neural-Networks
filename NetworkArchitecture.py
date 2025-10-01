@@ -1,3 +1,5 @@
+import random
+
 import torch
 import torch.nn.functional as F
 from torch import nn
@@ -6,7 +8,7 @@ from torch.nn.functional import embedding
 
 # What a mouthful...
 class UnderlyingTwoDimensionalGRU(nn.Module):
-    def __init__(self, input_size, embedding_size=None, hidden_size=None, dropout=0, omnidirectionality=False):
+    def __init__(self, input_size, embedding_size=None, hidden_size=None, dropout=0, omnidirectionality=False, device=torch.device('cpu')):
         super(UnderlyingTwoDimensionalGRU, self).__init__()
         if not omnidirectionality:
             self.direction_ref = ["Top-Left"]
@@ -36,6 +38,7 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
             out_features=self.hidden_size) for ref in self.direction_ref})
 
         self.norms = nn.ModuleDict({ref : nn.LayerNorm(self.hidden_size) for ref in self.direction_ref})
+        self.device = device
 
     def forward(self, x, return_final_row_col=False, preset_row=None, preset_col=None):
         """
@@ -64,13 +67,13 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
             _, batch_size, pr, pc, bd = x.size()
 
         # Storage for previous layer's output
-        output = {ref : torch.zeros((batch_size, pr, pc, self.hidden_size))
+        output = {ref : torch.zeros((batch_size, pr, pc, self.hidden_size), device=self.device)
             for ref in self.direction_ref}
 
         # Initialize previous hidden data
         if preset_row is None:
             prev_rows = {ref : torch.full((batch_size, pc, self.hidden_size), fill_value=0,
-                dtype=torch.float32) for ref in self.direction_ref}
+                dtype=torch.float32, device=self.device) for ref in self.direction_ref}
         else:
             prev_rows = preset_row
 
@@ -94,8 +97,8 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
 
         # Initialize - if requested, final row and col data
         if return_final_row_col:
-            final_row = {ref : torch.zeros(batch_size, pc, self.hidden_size) for ref in self.direction_ref}
-            final_col = {ref : torch.zeros(batch_size, pr, self.hidden_size) for ref in self.direction_ref}
+            final_row = {ref : torch.zeros(batch_size, pc, self.hidden_size, device=self.device) for ref in self.direction_ref}
+            final_col = {ref : torch.zeros(batch_size, pr, self.hidden_size, device=self.device) for ref in self.direction_ref}
         else:
             final_row = None
             final_col = None
@@ -104,7 +107,7 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
         for row in range(pr):
             # Initialize previous hidden state to the (left/right)
             if preset_col is None:
-                last_col = {ref : torch.zeros((batch_size, self.hidden_size),dtype=torch.float32) for ref in self.direction_ref}
+                last_col = {ref : torch.zeros((batch_size, self.hidden_size),dtype=torch.float32, device=self.device) for ref in self.direction_ref}
             else:
                 last_col = {ref: preset_col[ref][:, row, :] for ref in self.direction_ref}
 
@@ -120,31 +123,8 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
                     else:
                         x_ij = x[self.direction_ref.index(key), :, starts[key][0] + directions[key][0] * row, starts[key][1] + directions[key][1] * col, :]
 
-                    if self.embedding is not None:
-                        x_ij = self.embedding(x_ij)
-
-                    # Combine the two previous hidden vectors (one from above/below one from left/right)
-                    previous_data = torch.cat((last_row, last_col[key]), dim=1)
-
-                    # Reshaping
-                    x_ij = x_ij.view(batch_size, 1, self.embedding_size)
-                    previous_data = previous_data.view(1, batch_size, self.hidden_size * 2)
-
-                    # Throw data into the underlying gru
-                    o_ij, h_ij = self.grus[key](x_ij, previous_data)
-                    h_ij = h_ij[-1]
-
-                    if self.dropout > 0:
-                        h_ij = F.dropout(h_ij, p=self.dropout)
-
-                    # Translate new hidden vector back into the proper size
-                    h_ij = self.compressors[key](h_ij)
-
-                    # Create a residual based off of x_ij
-                    residual = self.residual_projs[key](x_ij).view(batch_size, self.hidden_size)
-                    h_ij = residual + h_ij
-
-                    h_ij = self.norms[key](h_ij)
+                    # Main loop is in this single step method
+                    h_ij = self.single_step(x_ij, last_row, last_col[key], batch_size, key)
 
                     # Update current row values
                     cur_rows[key].append(h_ij)
@@ -181,21 +161,54 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
         else:
             return output, h_final, final_row, final_col
 
+    def single_step(self, x, hidden_vert, hidden_horiz, batch_size, key):
+        """
+        Defines a single step of the GRU network, given a vertical hidden and a horizontal hidden.
+        Useful for redefining the forward method.
+        """
+
+        if self.embedding is not None:
+            x = self.embedding(x)
+
+        # Combine the two previous hidden vectors (one from above/below one from left/right)
+        previous_data = torch.cat((hidden_vert, hidden_horiz), dim=1)
+
+        # Reshaping
+        x = x.view(batch_size, 1, self.embedding_size)
+        previous_data = previous_data.view(1, batch_size, self.hidden_size * 2)
+
+        # Throw data into the underlying gru
+        o, h = self.grus[key](x, previous_data)
+        h = h[-1]
+
+        # Translate new hidden vector back into the proper size
+        h = self.compressors[key](h)
+
+        # Create a residual based off of x_ij
+        residual = self.residual_projs[key](x).view(batch_size, self.hidden_size)
+        h = residual + h
+
+        h = self.norms[key](h)
+
+        return h
 
 
 class TwoDimensionalGRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, embedding_size=None, omnidirectionality=False):
+    def __init__(self, input_size, hidden_size, num_layers, embedding_size=None, omnidirectionality=False, device=torch.device('cpu')):
         super(TwoDimensionalGRU, self).__init__()
 
         self.embedding_size = embedding_size
         self.num_layers = num_layers
 
         # input_size, embedding_size=None, hidden_size=None, dropout=0, omnidirectionality=False
-        self.inGRU = UnderlyingTwoDimensionalGRU(input_size, embedding_size, hidden_size=hidden_size, omnidirectionality=omnidirectionality)
+        self.inGRU = UnderlyingTwoDimensionalGRU(input_size, embedding_size, hidden_size=hidden_size,
+                omnidirectionality=omnidirectionality, device=device)
         self.deeper_layers = nn.ModuleList([
             UnderlyingTwoDimensionalGRU(hidden_size, embedding_size=None, hidden_size=hidden_size,
-                omnidirectionality=omnidirectionality) for i in range(self.num_layers - 1)
+                omnidirectionality=omnidirectionality, device=device) for i in range(self.num_layers - 1)
         ])
+
+        self.device = device
 
     def forward(self, x):
         output, h_final = self.inGRU(x)
@@ -203,14 +216,89 @@ class TwoDimensionalGRU(nn.Module):
             output, h_final = layer(output)
         return output, h_final
 
+class TwoDimensionalGRUSeq2Seq(nn.Module):
+    # The big one...
+    def __init__(self, input_size, embedding_size, hidden_size, num_layers=1, forcing=0.0, device=torch.device('cpu')):
+        super(TwoDimensionalGRUSeq2Seq, self).__init__()
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        self.encoder = UnderlyingTwoDimensionalGRU(input_size, embedding_size, hidden_size, omnidirectionality=True, device=device)
+        self.channel_reduction_row = nn.Conv2d(4, 1, (1,1), device=device)
+        self.channel_reduction_col = nn.Conv2d(4, 1, (1,1), device=device)
+        self.decoder = UnderlyingTwoDimensionalGRU(input_size+2, embedding_size, hidden_size, omnidirectionality=False, device=device)
+        self.evaluator = nn.Sequential(
+            nn.Linear(hidden_size, input_size, device=device),
+            nn.Tanh()
+        )
+
+        self.device = device
+        self.forcing = forcing
+
+    def forward(self, x):
+        batch_size, pr, pc, bd = x.size()
+        output, _ , final_row, final_col = self.encoder(x, return_final_row_col=True)
+
+        # Now, for the decoder part - attempt to reconstruct the image
+        # First column counts as a "start of image" column -> cropped out at the end
+        # reconstructed = torch.zeros((batch_size, pr, pc + 1, bd))
+        replica = [[] for s in range(batch_size)]
+        for s in range(batch_size):
+            replica[s] = [[] for b in range(pr)]
+
+        # Store all of the hidden data on a grid - including our final row and column data
+        final_row = self.channel_reduction_row(torch.stack([final_row[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
+        final_col = self.channel_reduction_col(torch.stack([final_col[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
+
+        # Note hidden_grid[:, 0, 0, :] is unused data
+        hidden_grid = torch.zeros((batch_size, pr + 1, pc + 1, self.hidden_size), device=self.device)
+        hidden_grid[:, 0, 1:, :] = final_row
+        hidden_grid[:, 1:, 0, :] = final_col
+
+        for row in range(pr):
+            for s in range(batch_size):
+                replica[s][row].append(torch.zeros(self.input_size, device=self.device))
+            for col in range(pc):
+                above = hidden_grid[:, row, col + 1, :]
+                left = hidden_grid[:, row + 1, col, :]
+
+                # Grab patch to the left to compute new hidden vector
+                absolute_pos = torch.tensor([row / pr * 2 - 1, col / pr * 2 - 1] * batch_size, device=self.device).view(batch_size, 2)
+                prev_input = torch.stack([replica[s][row][col] for s in range(batch_size)])
+                prev_input = torch.cat((prev_input, absolute_pos), dim=1)
+
+                h_ij = self.decoder.single_step(prev_input, above, left, batch_size, "Top-Left")
+                hidden_grid[:, row + 1, col + 1, :] = h_ij
+
+                # Convert hidden vector to a next-patch prediction
+                # Tanh is applied at the end to make values between -1 and 1 -> just like our original images!
+                x_next = self.evaluator(h_ij)
+
+                for s in range(batch_size):
+                    rand = torch.rand(1).item()
+                    if rand > self.forcing:
+                        replica[s][row].append(x_next[s])
+                    else:
+                        replica[s][row].append(x[s, row, col, :])
+
+        # fully stack replica into a tensor
+        rep = []
+        for s in range(batch_size):
+            cols = [torch.stack(replica[s][row]) for row in range(pr)]
+            full_im = torch.stack(cols)
+            rep.append(full_im)
+        rep = torch.stack(rep)
+
+        return rep[:, :, 1:, :]
+
 
 if __name__ == '__main__':
     # net = OmniDirectionalTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
 
     # net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
-    net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
+    # net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
 
-    test_tensor = torch.rand((4, 2, 3, 9))
+    test_tensor = torch.rand((5, 2, 3, 9))
     # output, test_result, final_row, final_col = net.forward(test_tensor, return_final_row_col=True)
     #
     # print("Verifying output row:")
@@ -221,10 +309,11 @@ if __name__ == '__main__':
     # print(output[0, 0, :, 2, :])
     # print(final_col["Top-Left"][0])
 
-    initial_hiddens = {"Top-Left" : torch.ones(4, 3, 12)}
-    output, test_result, final_row, final_col = net.forward(test_tensor, return_final_row_col=True, preset_col=initial_hiddens)
 
     # labels = torch.rand((4,1))
     # args = torch.argmax(test_result)
+
+    net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 1, forcing=1.0)
+    repla = net(test_tensor)
 
     print("hi")
