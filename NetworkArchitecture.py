@@ -37,7 +37,7 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
 
         self.norms = nn.ModuleDict({ref : nn.LayerNorm(self.hidden_size) for ref in self.direction_ref})
 
-    def forward(self, x):
+    def forward(self, x, return_final_row_col=False, preset_row=None, preset_col=None):
         """
         Forward pass of the 2-D GRU
 
@@ -68,8 +68,11 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
             for ref in self.direction_ref}
 
         # Initialize previous hidden data
-        prev_rows = {ref : torch.full((batch_size, pc, self.hidden_size), fill_value=0,
-            dtype=torch.float32) for ref in self.direction_ref}
+        if preset_row is None:
+            prev_rows = {ref : torch.full((batch_size, pc, self.hidden_size), fill_value=0,
+                dtype=torch.float32) for ref in self.direction_ref}
+        else:
+            prev_rows = preset_row
 
         # Initialize current hidden rows
         cur_rows = {ref: [] for ref in self.direction_ref}
@@ -89,10 +92,21 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
             "Bottom-Right" : (pr-1, pc-1)
         }
 
+        # Initialize - if requested, final row and col data
+        if return_final_row_col:
+            final_row = {ref : torch.zeros(batch_size, pc, self.hidden_size) for ref in self.direction_ref}
+            final_col = {ref : torch.zeros(batch_size, pr, self.hidden_size) for ref in self.direction_ref}
+        else:
+            final_row = None
+            final_col = None
+
         last_col = None
         for row in range(pr):
             # Initialize previous hidden state to the (left/right)
-            last_col = {ref : torch.zeros((batch_size, self.hidden_size),dtype=torch.float32) for ref in self.direction_ref}
+            if preset_col is None:
+                last_col = {ref : torch.zeros((batch_size, self.hidden_size),dtype=torch.float32) for ref in self.direction_ref}
+            else:
+                last_col = {ref: preset_col[ref][:, row, :] for ref in self.direction_ref}
 
             for col in range(pc):
                 # For each GRU, calculate its forward step
@@ -136,6 +150,9 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
                     cur_rows[key].append(h_ij)
                     last_col[key] = h_ij
 
+                    if return_final_row_col and col == pc - 1:
+                        final_col[key][:, starts[key][0] + directions[key][0] * row, :] = last_col[key]
+
             # Update previous row data now that the row is finished
             for key in self.grus.keys():
                 saved_row = cur_rows[key]
@@ -152,11 +169,17 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
                 prev_rows[key] = saved_row
                 cur_rows[key] = []
 
+                if return_final_row_col:
+                    final_row[key] = saved_row
+
         # Package up the final hidden vectors
         h_final = torch.cat([last_col[key] for key in self.direction_ref], dim=1)
         output = torch.stack([output[key] for key in self.direction_ref])
         """, last_col["Bottom-Left"], last_col["Bottom-Right"]"""
-        return output, h_final
+        if not return_final_row_col:
+            return output, h_final
+        else:
+            return output, h_final, final_row, final_col
 
 
 
@@ -184,10 +207,22 @@ class TwoDimensionalGRU(nn.Module):
 if __name__ == '__main__':
     # net = OmniDirectionalTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
 
-    net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
+    # net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
+    net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
 
     test_tensor = torch.rand((4, 2, 3, 9))
-    output, test_result = net(test_tensor)
+    # output, test_result, final_row, final_col = net.forward(test_tensor, return_final_row_col=True)
+    #
+    # print("Verifying output row:")
+    # print(output[0, 0, 1, :, :])
+    # print(final_row["Top-Left"][0])
+    #
+    # print("Verifying output col:")
+    # print(output[0, 0, :, 2, :])
+    # print(final_col["Top-Left"][0])
+
+    initial_hiddens = {"Top-Left" : torch.ones(4, 3, 12)}
+    output, test_result, final_row, final_col = net.forward(test_tensor, return_final_row_col=True, preset_col=initial_hiddens)
 
     # labels = torch.rand((4,1))
     # args = torch.argmax(test_result)
