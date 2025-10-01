@@ -10,19 +10,27 @@ import torch.nn.functional as F
 # torch.autograd.set_detect_anomaly(True)
 epochs = 10
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device {device}")
+
+
 dat = md.PixelDataset(prc_len=28)
 
-net = na.TwoDimensionalGRUSeq2Seq(1, embedding_size=3, hidden_size=50, num_layers=1, forcing=0.7)
+net = na.TwoDimensionalGRUSeq2Seq(1, embedding_size=3, hidden_size=50, num_layers=1, forcing=0.7, device=device)
+net = net.to(device)
+
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
-    dat_loader = DataLoader(dat, batch_size=64, shuffle=True)
+    dat_loader = DataLoader(dat, batch_size=400, shuffle=True,  pin_memory=(device.type=="cuda"))
     progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
     running_loss = 0.0
     net = net.train()
     for _, batch in enumerate(progress_bar):
         ims, label = batch
+
+        ims = ims.to(device, non_blocking=True)
 
         optimizer.zero_grad()
         output = net(ims)
