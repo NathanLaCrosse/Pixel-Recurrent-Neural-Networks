@@ -23,7 +23,7 @@ loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
-    dat_loader = DataLoader(dat, batch_size=256, shuffle=True,  pin_memory=(device.type=="cuda"))
+    dat_loader = DataLoader(dat, batch_size=256, shuffle=True,  pin_memory=(device.type==device))
     progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
     running_loss = 0.0
     net = net.train()
