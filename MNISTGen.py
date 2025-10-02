@@ -14,16 +14,16 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device {device}")
 
 
-dat = md.PixelDataset(prc_len=28)
+dat = md.PixelDataset(prc_len=14)
 
-net = na.TwoDimensionalGRUSeq2Seq(1, embedding_size=3, hidden_size=50, num_layers=1, forcing=0.7, device=device)
+net = na.TwoDimensionalGRUSeq2Seq(4, embedding_size=7, hidden_size=30, num_layers=1, forcing=0.5, device=device)
 net = net.to(device)
 
 loss_fn = nn.MSELoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
-    dat_loader = DataLoader(dat, batch_size=400, shuffle=True,  pin_memory=(device.type=="cuda"))
+    dat_loader = DataLoader(dat, batch_size=256, shuffle=True,  pin_memory=(device.type=="cuda"))
     progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
     running_loss = 0.0
     net = net.train()
@@ -43,4 +43,4 @@ for epoch in range(epochs):
         progress_bar.set_postfix({'loss': loss.item()})
         running_loss += loss.item()
 
-    torch.save(net.state_dict(), "Monster.pt")
+    torch.save(net.state_dict(), f"LITEMonster{epoch+1}.pt")
