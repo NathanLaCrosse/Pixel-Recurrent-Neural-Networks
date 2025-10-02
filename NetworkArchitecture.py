@@ -192,9 +192,9 @@ class UnderlyingTwoDimensionalGRU(nn.Module):
 
         return h
 
-
 class TwoDimensionalGRU(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, embedding_size=None, omnidirectionality=False, device=torch.device('cpu')):
+    def __init__(self, input_size, hidden_size, num_layers, embedding_size=None,
+                 omnidirectionality=False, device=torch.device('cpu')):
         super(TwoDimensionalGRU, self).__init__()
 
         self.embedding_size = embedding_size
@@ -215,6 +215,19 @@ class TwoDimensionalGRU(nn.Module):
         for layer in self.deeper_layers:
             output, h_final = layer(output)
         return output, h_final
+
+class MNISTClassifier(nn.Module):
+    def __init__(self, input_size, embedding_size, hidden_size, num_layers, omnidirectionality, class_count):
+        super(MNISTClassifier, self).__init__()
+
+        self.recurrent = TwoDimensionalGRU(input_size = input_size, embedding_size = embedding_size,
+                                              hidden_size = hidden_size, num_layers = num_layers,
+                                              omnidirectionality = omnidirectionality)
+        self.to_out = nn.Linear(hidden_size*4, class_count)
+
+    def forward(self, x):
+        _, h_n = self.recurrent(x)
+        return self.to_out(h_n)
 
 class TwoDimensionalGRUSeq2Seq(nn.Module):
     # The big one...
@@ -291,6 +304,22 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
 
         return rep[:, :, 1:, :]
 
+def save_checkpoint(input_size, embedding_size, hidden_size, num_layers, forcing, model, model_name):
+
+    config = {
+        'input_size': input_size,
+        'embedding_size': embedding_size,
+        'hidden_size': hidden_size,
+        'num_layers': num_layers,
+        'forcing': forcing
+    }
+
+    checkpoint = {
+        'config': config,
+        'model': model.state_dict()
+    }
+
+    torch.save(checkpoint, f'Models/{model_name}')
 
 if __name__ == '__main__':
     # net = OmniDirectionalTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
