@@ -19,7 +19,7 @@ def unpatch_image(im : torch.Tensor):
     return unpatched
 
 net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0)
-net_dict = torch.load("LITEMonster2.pt", map_location=torch.device('cpu'))
+net_dict = torch.load("LITEMonster10.pt", map_location=torch.device('cpu'))
 net.load_state_dict(net_dict)
 total_params = sum(p.numel() for p in net.parameters())
 print(f"Total parameters: {total_params}")
