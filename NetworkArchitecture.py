@@ -231,52 +231,94 @@ class MNISTClassifier(nn.Module):
 
 class TwoDimensionalGRUSeq2Seq(nn.Module):
     # The big one...
-    def __init__(self, input_size, embedding_size, hidden_size, num_layers=1, forcing=0.0, device=torch.device('cpu')):
+    def __init__(self, input_size, embedding_size, hidden_size, patch_rows, patch_cols, latent_size=64, num_layers=1, forcing=0.0,
+                 device=torch.device('cpu')):
         super(TwoDimensionalGRUSeq2Seq, self).__init__()
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.latent_size = latent_size
+        self.patch_rows = patch_rows
+        self.patch_cols = patch_cols
 
-        self.encoder = UnderlyingTwoDimensionalGRU(input_size, embedding_size, hidden_size, omnidirectionality=True, device=device)
-        self.channel_reduction_row = nn.Conv2d(4, 1, (1,1), device=device)
-        self.channel_reduction_col = nn.Conv2d(4, 1, (1,1), device=device)
-        self.decoder = UnderlyingTwoDimensionalGRU(input_size+2, embedding_size, hidden_size, omnidirectionality=False, device=device)
+        # Encoder
+        self.encoder = UnderlyingTwoDimensionalGRU(input_size, embedding_size, hidden_size, omnidirectionality=True,
+                                                   device=device)
+
+        # Convert into latent space
+        self.channel_reduction_row = nn.Conv2d(4, 1, (1, 1), device=device)
+        self.channel_reduction_col = nn.Conv2d(4, 1, (1, 1), device=device)
+        self.row_compress = nn.Linear(patch_cols * hidden_size, latent_size//2) # Note: row & col are concatenated together
+        self.col_compress = nn.Linear(patch_rows * hidden_size, latent_size//2)
+
+        # Convert out of latent space
+        self.row_decompress = nn.Linear(latent_size//2, patch_cols * hidden_size)
+        self.col_decompress = nn.Linear(latent_size//2, patch_rows * hidden_size)
+
+        # Decoder
+        self.decoder = UnderlyingTwoDimensionalGRU(input_size + 2, embedding_size, hidden_size,
+                                                   omnidirectionality=False, device=device)
         self.evaluator = nn.Sequential(
             nn.Linear(hidden_size, input_size, device=device),
-            nn.Tanh()
+            nn.Sigmoid()
         )
 
         self.device = device
         self.forcing = forcing
 
-    def forward(self, x):
-        batch_size, pr, pc, bd = x.size()
-        output, _ , final_row, final_col = self.encoder(x, return_final_row_col=True)
+    def forward(self, x, just_latent=False, just_decoder=False):
+        batch_size = x.size()[0]
+        if not just_decoder:
+            _, pr, pc, bd = x.size()
+            output, _, final_row, final_col = self.encoder(x, return_final_row_col=True)
+
+            # Translate final row and final column of the encoder from describing the image
+            # omnidirectionally to describing a combination of those directions in a single tensor
+            final_row = self.channel_reduction_row(
+                torch.stack([final_row[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
+            final_col = self.channel_reduction_col(
+                torch.stack([final_col[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
+
+            # Reshape vectors down into a single column vector -> then compress
+            final_row = self.row_compress(final_row.view(batch_size, pc * self.hidden_size))
+            final_col = self.col_compress(final_col.view(batch_size, pr * self.hidden_size))
+
+            # Concatenate to obtain latent vector
+            latent = torch.cat((final_row, final_col), dim=1)
+            if just_latent:
+                return latent
+        else:
+            latent = x
+
+        # Expand latent vector back out
+        latent_row = self.row_decompress(latent[:, :self.latent_size//2])
+        latent_col = self.col_decompress(latent[:, self.latent_size//2:])
+
+        latent_row = latent_row.view(batch_size, self.patch_cols, self.hidden_size)
+        latent_col = latent_col.view(batch_size, self.patch_rows, self.hidden_size)
 
         # Now, for the decoder part - attempt to reconstruct the image
         # First column counts as a "start of image" column -> cropped out at the end
         # reconstructed = torch.zeros((batch_size, pr, pc + 1, bd))
         replica = [[] for s in range(batch_size)]
         for s in range(batch_size):
-            replica[s] = [[] for b in range(pr)]
+            replica[s] = [[] for b in range(self.patch_rows)]
 
         # Store all of the hidden data on a grid - including our final row and column data
-        final_row = self.channel_reduction_row(torch.stack([final_row[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
-        final_col = self.channel_reduction_col(torch.stack([final_col[key] for key in self.encoder.direction_ref]).permute(1, 0, 2, 3))[:, 0, :, :]
-
         # Note hidden_grid[:, 0, 0, :] is unused data
-        hidden_grid = torch.zeros((batch_size, pr + 1, pc + 1, self.hidden_size), device=self.device)
-        hidden_grid[:, 0, 1:, :] = final_row
-        hidden_grid[:, 1:, 0, :] = final_col
+        hidden_grid = torch.zeros((batch_size, self.patch_rows + 1, self.patch_cols + 1, self.hidden_size), device=self.device)
+        hidden_grid[:, 0, 1:, :] = latent_row
+        hidden_grid[:, 1:, 0, :] = latent_col
 
-        for row in range(pr):
+        for row in range(self.patch_rows):
             for s in range(batch_size):
                 replica[s][row].append(torch.zeros(self.input_size, device=self.device))
-            for col in range(pc):
+            for col in range(self.patch_cols):
                 above = hidden_grid[:, row, col + 1, :]
                 left = hidden_grid[:, row + 1, col, :]
 
                 # Grab patch to the left to compute new hidden vector
-                absolute_pos = torch.tensor([row / pr * 2 - 1, col / pr * 2 - 1] * batch_size, device=self.device).view(batch_size, 2)
+                absolute_pos = torch.tensor([row / self.patch_rows * 2 - 1, col / self.patch_rows * 2 - 1] * batch_size,
+                                            device=self.device).view(batch_size, 2)
                 prev_input = torch.stack([replica[s][row][col] for s in range(batch_size)])
                 prev_input = torch.cat((prev_input, absolute_pos), dim=1)
 
@@ -284,7 +326,7 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
                 hidden_grid[:, row + 1, col + 1, :] = h_ij
 
                 # Convert hidden vector to a next-patch prediction
-                # Tanh is applied at the end to make values between -1 and 1 -> just like our original images!
+                # Tanh is applied at the end to make values between 0 and 1 -> for BCE Loss
                 x_next = self.evaluator(h_ij)
 
                 for s in range(batch_size):
@@ -292,17 +334,23 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
                     if rand > self.forcing:
                         replica[s][row].append(x_next[s])
                     else:
-                        replica[s][row].append(x[s, row, col, :])
+                        replica[s][row].append((x[s, row, col, :] + 1) / 2) # force value from x
 
         # fully stack replica into a tensor
         rep = []
         for s in range(batch_size):
-            cols = [torch.stack(replica[s][row]) for row in range(pr)]
+            cols = [torch.stack(replica[s][row]) for row in range(self.patch_rows)]
             full_im = torch.stack(cols)
             rep.append(full_im)
         rep = torch.stack(rep)
 
         return rep[:, :, 1:, :]
+
+    def to_latent(self, x):
+        return self.forward(x, just_latent=True)
+
+    def to_image(self, latent):
+        return self.forward(latent, just_decoder=True)
 
 def save_checkpoint(input_size, embedding_size, hidden_size, num_layers, forcing, model, model_name):
 
@@ -342,7 +390,12 @@ if __name__ == '__main__':
     # labels = torch.rand((4,1))
     # args = torch.argmax(test_result)
 
-    net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 1, forcing=1.0)
+    net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
     repla = net(test_tensor)
+
+    latent = net.to_latent(test_tensor)
+    to_im = net.to_image(latent)
+
+    print(sum(p.numel() for p in net.parameters() if p.requires_grad))
 
     print("hi")

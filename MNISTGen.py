@@ -16,10 +16,11 @@ print(f"Using device {device}")
 
 dat = md.PixelDataset(prc_len=14)
 
-net = na.TwoDimensionalGRUSeq2Seq(4, embedding_size=7, hidden_size=30, num_layers=1, forcing=0.5, device=device)
+net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0.5, device=device)
+
 net = net.to(device)
 
-loss_fn = nn.MSELoss()
+loss_fn = nn.BCELoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
@@ -35,7 +36,8 @@ for epoch in range(epochs):
         optimizer.zero_grad()
         output = net(ims)
 
-        loss = loss_fn(output, ims)
+        # Note - we want ims to have values (-1, 1) due to tanh but for BCE we need values (0,1), thus the weirdness
+        loss = loss_fn(output, (ims + 1) / 2)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) # Gradient clipping
         optimizer.step()
