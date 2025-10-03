@@ -352,12 +352,16 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
     def to_image(self, latent):
         return self.forward(latent, just_decoder=True)
 
-def save_checkpoint(input_size, embedding_size, hidden_size, num_layers, forcing, model, model_name):
+def save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
+                    patch_cols, latent_size, num_layers, forcing, model, model_name):
 
     config = {
         'input_size': input_size,
         'embedding_size': embedding_size,
         'hidden_size': hidden_size,
+        'patch_rows': patch_rows,
+        'patch_cols': patch_cols,
+        'latent_size': latent_size,
         'num_layers': num_layers,
         'forcing': forcing
     }
