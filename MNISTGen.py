@@ -7,38 +7,44 @@ import NetworkArchitecture as na
 import MNISTData as md
 from tqdm import tqdm
 
-def unpatch_image(im : torch.Tensor):
-    num_patches, _ ,patch_dim = im.size()
-    patch_dim = int(np.sqrt(patch_dim))
-    unpatched = np.zeros((num_patches * patch_dim, num_patches * patch_dim))
+def unpatch_image(im, patch_rows, patch_cols, patch_size):
+    patch_dim = int(np.sqrt(patch_size))
 
-    for row in range(num_patches):
-        for col in range(num_patches):
-            unpatched[patch_dim*row:patch_dim*(row+1), patch_dim*col:patch_dim*(col+1)] = im[row, col, :].numpy().reshape(patch_dim, patch_dim)
+    im = im.numpy()
+    image = im.reshape(patch_rows, patch_cols, patch_dim, patch_dim)
+    image = image.transpose(0, 2, 1, 3)
+    image = image.reshape(28, 28)
 
-    return unpatched
+    return image
 
-def generator():
-    return
+def generator(filepath):
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+    checkpoint = torch.load(f'Models/{filepath}')
 
-net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0)
-net_dict = torch.load("Models/LITEMonster10.pt", map_location=torch.device('cpu'))
-net.load_state_dict(net_dict)
-total_params = sum(p.numel() for p in net.parameters())
-print(f"Total parameters: {total_params}")
+    config = checkpoint['config']
+    model = na.TwoDimensionalGRUSeq2Seq(**config)
+    model.load_state_dict(checkpoint['model'])
+    model.forcing = 0.0
 
-dat = md.PixelDataset(prc_len=14, filepath="Datasets/mnist_test.csv")
+    patch_rows = config['patch_rows']
+    patch_cols = config['patch_cols']
+    patch_size = config['input_size']
 
-with torch.no_grad():
-    for im, label in dat:
-        pred = net(im.view(1, 14, 14, 4))[0]
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params}")
 
-        fig, ax = plt.subplots(nrows=1, ncols=2)
-        ax[0].imshow(unpatch_image(im))
-        ax[0].set_title("True")
-        ax[1].imshow(unpatch_image(pred))
-        ax[1].set_title("Predicted")
-        plt.show()
+    with torch.no_grad():
+        for im, label in eval_dataset:
+            pred = model(im.view(1, patch_rows, patch_cols, patch_size))[0]
+
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            ax[0].imshow(unpatch_image(im, patch_rows, patch_cols, patch_size), cmap = 'gray')
+            ax[0].set_title("True")
+            ax[1].imshow(unpatch_image(pred, patch_rows, patch_cols, patch_size), cmap = 'gray')
+            ax[1].set_title("Predicted")
+            plt.show()
+
+
 
 
 def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_size = 16,
