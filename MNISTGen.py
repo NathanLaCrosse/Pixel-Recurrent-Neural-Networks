@@ -1,3 +1,5 @@
+import numpy as np
+import matplotlib.pyplot as plt
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
@@ -5,47 +7,86 @@ import NetworkArchitecture as na
 import MNISTData as md
 from tqdm import tqdm
 
-# RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation: [torch.FloatTensor [64, 16]], which is output 0 of AsStridedBackward0, is at version 49; expected version 48 instead. Hint: the backtrace further above shows the operation that failed to compute its gradient. The variable in question was changed in there or anywhere later. Good luck!
-# torch.autograd.set_detect_anomaly(True)
-epochs = 10
+def unpatch_image(im, patch_rows, patch_cols, patch_size):
+    patch_dim = int(np.sqrt(patch_size))
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device {device}")
+    im = im.numpy()
+    image = im.reshape(patch_rows, patch_cols, patch_dim, patch_dim)
+    image = image.transpose(0, 2, 1, 3)
+    image = image.reshape(28, 28)
+
+    return image
+
+def generator(filepath):
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+    checkpoint = torch.load(f'Models/{filepath}')
+
+    config = checkpoint['config']
+    model = na.TwoDimensionalGRUSeq2Seq(**config)
+    model.load_state_dict(checkpoint['model'])
+    model.forcing = 0.0
+
+    patch_rows = config['patch_rows']
+    patch_cols = config['patch_cols']
+    patch_size = config['input_size']
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params}")
+
+    with torch.no_grad():
+        for im, label in eval_dataset:
+            pred = model(im.view(1, patch_rows, patch_cols, patch_size))[0]
+
+            fig, ax = plt.subplots(nrows=1, ncols=2)
+            ax[0].imshow(unpatch_image(im, patch_rows, patch_cols, patch_size), cmap = 'gray')
+            ax[0].set_title("True")
+            ax[1].imshow(unpatch_image(pred, patch_rows, patch_cols, patch_size), cmap = 'gray')
+            ax[1].set_title("Predicted")
+            plt.show()
 
 
-dat = md.PixelDataset(prc_len=14)
 
-net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0.5, device=device)
 
-net = net.to(device)
+def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_size = 16,
+                    embedding_size = 32, hidden_size = 64, patch_rows = 7, patch_cols = 7,
+                    latent_size = 64, num_layers = 1, forcing = 0.5, model_name = 'Omni.pt'):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device {device}")
 
-# loss_fn = nn.BCELoss()
-def loss_function(x, pred, logvar, mean):
-    reproduction_loss = nn.functional.binary_cross_entropy(x, pred, reduction='sum')
-    KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
-    return reproduction_loss + KLD
-optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+    pixel_dataset = md.PixelDataset(prc_len=7)
+    model = na.TwoDimensionalGRUSeq2Seq(input_size, embedding_size, hidden_size, patch_rows,
+                                        patch_cols, latent_size, num_layers, forcing, device)
+    model = model.to(device)
 
-for epoch in range(epochs):
-    dat_loader = DataLoader(dat, batch_size=256, shuffle=True,  pin_memory=(device.type==device))
-    progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
-    running_loss = 0.0
-    net = net.train()
-    for _, batch in enumerate(progress_bar):
-        ims, label = batch
+    # loss_fn = nn.BCELoss()
+    def loss_fn(x, pred, logvar, mean):
+        reproduction_loss = nn.functional.binary_cross_entropy(x, pred, reduction='sum')
+        KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
+        return reproduction_loss + KLD
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
-        ims = ims.to(device, non_blocking=True)
+    for epoch in range(epochs):
+        dat_loader = DataLoader(pixel_dataset, batch_size=batch_size, shuffle=True, pin_memory=(device.type==device))
+        progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
+        running_loss = 0.0
 
-        optimizer.zero_grad()
-        output, logvar, mean = net(ims)
+        model = model.train()
+        for _, batch in enumerate(progress_bar):
+            ims, label = batch
+            ims = ims.to(device, non_blocking=True)
 
-        # Note - we want ims to have values (-1, 1) due to tanh but for BCE we need values (0,1), thus the weirdness
-        loss = loss_function(output, (ims + 1) / 2, logvar, mean)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) # Gradient clipping
-        optimizer.step()
+            optimizer.zero_grad()
+            output = model(ims)
+            # Note on Loss Function: we want all images to be comprised of images with color values (-1, 1)
+            # for tanh. however, we need values (0, 1) for Binary Cross Entropy loss
+            loss = loss_fn(output, (ims + 1) / 2)
+            loss.backward()
 
-        progress_bar.set_postfix({'loss': loss.item()})
-        running_loss += loss.item()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
 
-    torch.save(net.state_dict(), f"LITEMonster{epoch+1}.pt")
+            progress_bar.set_postfix({'loss': loss.item()})
+            running_loss += loss.item()
+
+        na.save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
+                    patch_cols, latent_size, num_layers, forcing, model, model_name)
