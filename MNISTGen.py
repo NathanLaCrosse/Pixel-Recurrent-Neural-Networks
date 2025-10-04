@@ -53,7 +53,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device {device}")
 
-    pixel_dataset = md.PixelDataset(prc_len=7)
+    pixel_dataset = md.PixelDataset(prc_len=patch_rows)
     model = na.TwoDimensionalGRUSeq2Seq(input_size, embedding_size, hidden_size, patch_rows,
                                         patch_cols, latent_size, num_layers, forcing, device)
     model = model.to(device)
@@ -63,7 +63,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
         reproduction_loss = nn.functional.binary_cross_entropy(x, pred, reduction='sum')
         KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
         return reproduction_loss + KLD
-    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):
         dat_loader = DataLoader(pixel_dataset, batch_size=batch_size, shuffle=True, pin_memory=(device.type==device))
@@ -76,10 +76,10 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
             ims = ims.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            output = model(ims)
+            output, logvar, mean = model(ims)
             # Note on Loss Function: we want all images to be comprised of images with color values (-1, 1)
             # for tanh. however, we need values (0, 1) for Binary Cross Entropy loss
-            loss = loss_fn(output, (ims + 1) / 2)
+            loss = loss_fn(output, (ims + 1) / 2, logvar, mean)
             loss.backward()
 
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
@@ -90,3 +90,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
 
         na.save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
                     patch_cols, latent_size, num_layers, forcing, model, model_name)
+
+if __name__ == '__main__':
+    train_generation(1, batch_size=256, learning_rate=0.001, input_size=4, embedding_size=8, hidden_size=15,
+                     patch_rows=14, patch_cols=14, latent_size=64, num_layers=1, forcing=0.5, model_name="VAE")
