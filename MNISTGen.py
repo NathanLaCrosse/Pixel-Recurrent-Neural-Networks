@@ -4,7 +4,6 @@ from torch.utils.data import DataLoader
 import NetworkArchitecture as na
 import MNISTData as md
 from tqdm import tqdm
-import torch.nn.functional as F
 
 # RuntimeError: one of the variables needed for gradient computation has been modified by an inplace operation: [torch.FloatTensor [64, 16]], which is output 0 of AsStridedBackward0, is at version 49; expected version 48 instead. Hint: the backtrace further above shows the operation that failed to compute its gradient. The variable in question was changed in there or anywhere later. Good luck!
 # torch.autograd.set_detect_anomaly(True)
@@ -20,7 +19,11 @@ net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0.5, device=device)
 
 net = net.to(device)
 
-loss_fn = nn.BCELoss()
+# loss_fn = nn.BCELoss()
+def loss_function(x, pred, logvar, mean):
+    reproduction_loss = nn.functional.binary_cross_entropy(x, pred, reduction='sum')
+    KLD = -0.5 * torch.sum(1 + logvar - mean.pow(2) - logvar.exp())
+    return reproduction_loss + KLD
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 
 for epoch in range(epochs):
@@ -34,10 +37,10 @@ for epoch in range(epochs):
         ims = ims.to(device, non_blocking=True)
 
         optimizer.zero_grad()
-        output = net(ims)
+        output, logvar, mean = net(ims)
 
         # Note - we want ims to have values (-1, 1) due to tanh but for BCE we need values (0,1), thus the weirdness
-        loss = loss_fn(output, (ims + 1) / 2)
+        loss = loss_function(output, (ims + 1) / 2, logvar, mean)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0) # Gradient clipping
         optimizer.step()

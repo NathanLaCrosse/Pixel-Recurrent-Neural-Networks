@@ -250,6 +250,12 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         self.row_compress = nn.Linear(patch_cols * hidden_size, latent_size//2) # Note: row & col are concatenated together
         self.col_compress = nn.Linear(patch_rows * hidden_size, latent_size//2)
 
+        # VAE components
+        self.latent_to_logvar = nn.Linear(latent_size, latent_size)
+        self.latent_to_mean = nn.Linear(latent_size, latent_size)
+
+        # A reparameterization is implied here
+
         # Convert out of latent space
         self.row_decompress = nn.Linear(latent_size//2, patch_cols * hidden_size)
         self.col_decompress = nn.Linear(latent_size//2, patch_rows * hidden_size)
@@ -284,14 +290,19 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
 
             # Concatenate to obtain latent vector
             latent = torch.cat((final_row, final_col), dim=1)
+            logvar = self.latent_to_logvar(latent)
+            mean = self.latent_to_mean(latent)
             if just_latent:
-                return latent
+                return logvar, mean
         else:
-            latent = x
+            logvar, mean = x
+
+        # Reparameterize into a probability distribution
+        samp = self.reparameterize(logvar, mean)
 
         # Expand latent vector back out
-        latent_row = self.row_decompress(latent[:, :self.latent_size//2])
-        latent_col = self.col_decompress(latent[:, self.latent_size//2:])
+        latent_row = self.row_decompress(samp[:, :self.latent_size//2])
+        latent_col = self.col_decompress(samp[:, self.latent_size//2:])
 
         latent_row = latent_row.view(batch_size, self.patch_cols, self.hidden_size)
         latent_col = latent_col.view(batch_size, self.patch_rows, self.hidden_size)
@@ -344,13 +355,17 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
             rep.append(full_im)
         rep = torch.stack(rep)
 
-        return rep[:, :, 1:, :]
+        return rep[:, :, 1:, :], logvar, mean
+
+    def reparameterize(self, logvar, mean):
+        coef = torch.randn_like(logvar).to(self.device)
+        return mean + logvar * coef
 
     def to_latent(self, x):
         return self.forward(x, just_latent=True)
 
-    def to_image(self, latent):
-        return self.forward(latent, just_decoder=True)
+    def sample_image(self, logvar, mean):
+        return self.forward((logvar, mean), just_decoder=True)
 
 def save_checkpoint(input_size, embedding_size, hidden_size, num_layers, forcing, model, model_name):
 
@@ -391,11 +406,11 @@ if __name__ == '__main__':
     # args = torch.argmax(test_result)
 
     net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
-    repla = net(test_tensor)
+    repla, logvar, mean = net(test_tensor)
 
-    latent = net.to_latent(test_tensor)
-    to_im = net.to_image(latent)
+    # latent = net.to_latent(test_tensor)
+    # to_im = net.to_image(latent)
 
-    print(sum(p.numel() for p in net.parameters() if p.requires_grad))
+    # print(sum(p.numel() for p in net.parameters() if p.requires_grad))
 
     print("hi")

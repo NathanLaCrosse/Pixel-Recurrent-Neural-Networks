@@ -19,7 +19,7 @@ def unpatch_image(im : torch.Tensor):
     return unpatched
 
 net = na.TwoDimensionalGRUSeq2Seq(4, 7, 15, 14, 14, forcing=0)
-net_dict = torch.load("LITEMonster10.pt", map_location=torch.device('cpu'))
+net_dict = torch.load("LITEMonster1.pt", map_location=torch.device('cpu'))
 net.load_state_dict(net_dict)
 total_params = sum(p.numel() for p in net.parameters())
 print(f"Total parameters: {total_params}")
@@ -28,11 +28,16 @@ dat = md.PixelDataset(prc_len=14, filepath="Datasets/mnist_test.csv")
 
 with torch.no_grad():
     for im, label in dat:
-        pred = net(im.view(1, 14, 14, 4))[0]
+        pred, logvar, mean = net(im.view(1, 14, 14, 4))
+        pred = pred[0]
+
+        # latent = net.to_latent((im.view(1,14,14,4)))
+        # print(latent)
 
         fig, ax = plt.subplots(nrows=1, ncols=2)
         ax[0].imshow(unpatch_image(im))
         ax[0].set_title("True")
         ax[1].imshow(unpatch_image(pred))
+        # ax[1].imshow(unpatch_image(net.to_image(pred)))
         ax[1].set_title("Predicted")
         plt.show()
