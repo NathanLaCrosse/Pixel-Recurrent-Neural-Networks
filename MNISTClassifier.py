@@ -99,4 +99,5 @@ def train_pixel_rnn(epochs = 1, batch_size = 100, learning_rate = 0.001, input_s
         #          filepath=None, input_size=input_size, embedding_size=embedding_size,
         #          hidden_size=hidden_size, classification_count=classification_count)
 
-    na.save_checkpoint(input_size, embedding_size, hidden_size, num_layers, None, model, model_name)
+    na.save_checkpoint(input_size, embedding_size, hidden_size, None,None,
+                       None,  num_layers,None, model, model_name)

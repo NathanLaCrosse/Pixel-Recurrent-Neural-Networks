@@ -1,7 +1,5 @@
-import numpy as np
-import torch
-import torchvision
-from torchvision import datasets, transforms
+import matplotlib.pyplot as plt
+from torchvision import datasets
 
 mnist = datasets.MNIST(root='./data', train=False, download=True, transform=None)
 
@@ -16,10 +14,6 @@ f.read(16)
 buf = f.read(image_size * image_size * num_images)
 data = np.frombuffer(buf, dtype=np.uint8).astype(np.float32)
 data = data.reshape(num_images, image_size, image_size, 1)
-
-
-import matplotlib.pyplot as plt
-import cv2
 
 image = np.asarray(data[2]).squeeze()
 plt.imshow(image, cmap='gray', vmin=0, vmax=255)

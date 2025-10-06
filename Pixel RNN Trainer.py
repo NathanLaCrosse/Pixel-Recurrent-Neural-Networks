@@ -26,8 +26,8 @@ def main():
 
             if choice == 1:
                 print(">>> Running Generation Training...")
-                gen.train_generation(epochs=1, batch_size=100, model_name='Gen TEST.pt')
-                gen.generator()
+                gen.train_generation(epochs=1, batch_size=100, model_file_name='Gen TEST.pt')
+                gen.generator('Gen TEST.pt')
 
             elif choice == 2:
                 print(">>> Running Pixel RNN Training...")

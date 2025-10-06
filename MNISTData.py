@@ -1,16 +1,9 @@
-import numpy as np
 import torch
 import pandas as pd
 import tqdm as tqdm
-import matplotlib.pyplot as plt
 from torch.utils.data import Dataset
 
-  # For Testing
-def show(im):
-    plt.imshow(im, cmap='grey')
-    plt.show()
-
-   # MNIST Images are 28 x 28 pixels
+# MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
     mnist_train = pd.read_csv(filepath)
     labels = []
@@ -60,8 +53,3 @@ class PixelDataset(Dataset):
     def __getitem__(self, idx):
         return self.patched_images[idx], self.labels[idx]
 
-if __name__ == "__main__":
-    pixel = PixelDataset('Datasets/mnist_train.csv', 7)
-
-    im = pixel.raw_images[0]
-    show(im)
