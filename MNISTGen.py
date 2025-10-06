@@ -17,9 +17,9 @@ def unpatch_image(im, patch_rows, patch_cols, patch_size):
 
     return image
 
-def generator(filepath, prc_len=14):
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv",prc_len=14)
-    checkpoint = torch.load(f'Models/{filepath}')
+def generator(filepath, prc_len=14, device=torch.device("cpu")):
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv",prc_len=prc_len)
+    checkpoint = torch.load(f'Models/{filepath}', map_location=device)
 
     config = checkpoint['config']
     model = na.TwoDimensionalGRUSeq2Seq(**config)
@@ -97,7 +97,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
                     patch_cols, latent_size, num_layers, forcing, model, model_file_name)
 
 if __name__ == '__main__':
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # loaded = na.load_checkpoint(filepath="VAE.pt", device=device)
     # train_generation(30, batch_size=1024, learning_rate=0.001, input_size=4, embedding_size=8, hidden_size=30,
     #                  patch_rows=14, patch_cols=14, latent_size=64, num_layers=1, forcing=0.5, model_file_name="VAE.pt", pre_trained=loaded)
