@@ -17,8 +17,8 @@ def unpatch_image(im, patch_rows, patch_cols, patch_size):
 
     return image
 
-def generator(filepath):
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+def generator(filepath, prc_len=14):
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv",prc_len=14)
     checkpoint = torch.load(f'Models/{filepath}')
 
     config = checkpoint['config']
@@ -35,7 +35,8 @@ def generator(filepath):
 
     with torch.no_grad():
         for im, label in eval_dataset:
-            pred = model(im.view(1, patch_rows, patch_cols, patch_size))[0]
+            pred, _, _ = model(im.view(1, patch_rows, patch_cols, patch_size))
+            pred = pred[0]
 
             fig, ax = plt.subplots(nrows=1, ncols=2)
             ax[0].imshow(unpatch_image(im, patch_rows, patch_cols, patch_size), cmap = 'gray')
@@ -49,14 +50,18 @@ def generator(filepath):
 
 def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_size = 16,
                     embedding_size = 32, hidden_size = 64, patch_rows = 7, patch_cols = 7,
-                    latent_size = 64, num_layers = 1, forcing = 0.5, model_name = 'Omni.pt'):
+                    latent_size = 64, num_layers = 1, forcing = 0.5, model_file_name = 'Omni.pt',
+                    pre_trained=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device {device}")
 
     pixel_dataset = md.PixelDataset(prc_len=patch_rows)
-    model = na.TwoDimensionalGRUSeq2Seq(input_size, embedding_size, hidden_size, patch_rows,
+    if pre_trained is None:
+        model = na.TwoDimensionalGRUSeq2Seq(input_size, embedding_size, hidden_size, patch_rows,
                                         patch_cols, latent_size, num_layers, forcing, device)
-    model = model.to(device)
+    else:
+        model = pre_trained
+    model = model.to(device, non_blocking=True)
 
     # loss_fn = nn.BCELoss()
     def loss_fn(x, pred, logvar, mean):
@@ -89,8 +94,12 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
             running_loss += loss.item()
 
         na.save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
-                    patch_cols, latent_size, num_layers, forcing, model, model_name)
+                    patch_cols, latent_size, num_layers, forcing, model, model_file_name)
 
 if __name__ == '__main__':
-    train_generation(1, batch_size=256, learning_rate=0.001, input_size=4, embedding_size=8, hidden_size=15,
-                     patch_rows=14, patch_cols=14, latent_size=64, num_layers=1, forcing=0.5, model_name="VAE")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # loaded = na.load_checkpoint(filepath="VAE.pt", device=device)
+    # train_generation(30, batch_size=1024, learning_rate=0.001, input_size=4, embedding_size=8, hidden_size=30,
+    #                  patch_rows=14, patch_cols=14, latent_size=64, num_layers=1, forcing=0.5, model_file_name="VAE.pt", pre_trained=loaded)
+ 
+    generator(filepath="VAE.pt")

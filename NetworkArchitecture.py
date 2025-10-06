@@ -257,8 +257,8 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         # A reparameterization is implied here
 
         # Convert out of latent space
-        self.row_decompress = nn.Linear(latent_size//2, patch_cols * hidden_size)
-        self.col_decompress = nn.Linear(latent_size//2, patch_rows * hidden_size)
+        self.row_decompress = nn.Linear(latent_size, patch_cols * hidden_size)
+        self.col_decompress = nn.Linear(latent_size, patch_rows * hidden_size)
 
         # Decoder
         self.decoder = UnderlyingTwoDimensionalGRU(input_size + 2, embedding_size, hidden_size,
@@ -301,8 +301,8 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         samp = self.reparameterize(logvar, mean)
 
         # Expand latent vector back out
-        latent_row = self.row_decompress(samp[:, :self.latent_size//2])
-        latent_col = self.col_decompress(samp[:, self.latent_size//2:])
+        latent_row = self.row_decompress(samp)
+        latent_col = self.col_decompress(samp)
 
         latent_row = latent_row.view(batch_size, self.patch_cols, self.hidden_size)
         latent_col = latent_col.view(batch_size, self.patch_rows, self.hidden_size)
@@ -387,6 +387,15 @@ def save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
     }
 
     torch.save(checkpoint, f'Models/{model_name}')
+
+def load_checkpoint(filepath, device):
+    checkpoint = torch.load(f'Models/{filepath}')
+
+    config = checkpoint['config']
+    model = TwoDimensionalGRUSeq2Seq(**config, device=device)
+    model.load_state_dict(checkpoint['model'])
+
+    return model
 
 if __name__ == '__main__':
     # net = OmniDirectionalTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
