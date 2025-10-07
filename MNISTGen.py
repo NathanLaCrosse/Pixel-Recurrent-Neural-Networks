@@ -35,7 +35,7 @@ def generator(filepath, device=torch.device("cpu")):
 
     with torch.no_grad():
         for im, label in eval_dataset:
-            pred, _, _ = model(im.view(1, patch_rows, patch_cols, patch_size))
+            pred, log_var, mean = model(im.view(1, patch_rows, patch_cols, patch_size))
             pred = pred[0]
 
             fig, ax = plt.subplots(nrows=1, ncols=2)
@@ -95,3 +95,134 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
 
         na.save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
                     patch_cols, latent_size, num_layers, forcing, model, model_file_name)
+
+def test_centering(filepath="VAE.pt", device=torch.device("cpu")):
+    """
+    Visualize whether or not there is a fuzzy region around each of the means in the VAE encoding.
+    Essentially, we generate a bunch of vectors close to the mean and see what they look like
+    """
+
+    checkpoint = torch.load(f'Models/{filepath}', map_location=device)
+
+    config = checkpoint['config']
+    model = na.TwoDimensionalGRUSeq2Seq(**config)
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
+    model.load_state_dict(checkpoint['model'])
+    model.forcing = 0.0
+
+    patch_rows = config['patch_rows']
+    patch_cols = config['patch_cols']
+    patch_size = config['input_size']
+
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params}")
+
+    per_row = 10
+    scales = [1, 2, 3, 4, 5]
+
+    with torch.no_grad():
+        for im, label in eval_dataset:
+            pred, log_var, mean = model(im.view(1, patch_rows, patch_cols, patch_size))
+            pred = pred[0]
+            mean = mean[0]
+            log_var = log_var[0]
+
+            fig, ax = plt.subplots(nrows=len(scales), ncols=per_row)
+            for i in range(len(scales)):
+                for k in range(per_row):
+                    ax[i, k].axis('off')
+                    ax[i, k].imshow(unpatch_image(model.sample_image(log_var * np.exp(scales[i]), mean)[0], patch_rows, patch_cols, patch_size))
+
+            plt.tight_layout()
+            plt.show()
+
+def interp(filepath="VAE.pt", device=torch.device("cpu")):
+    """
+    Sample two latent vectors and visualize how one turns into the other.
+    """
+    checkpoint = torch.load(f'Models/{filepath}', map_location=device)
+
+    config = checkpoint['config']
+    model = na.TwoDimensionalGRUSeq2Seq(**config)
+    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
+    model.load_state_dict(checkpoint['model'])
+    model.forcing = 0.0
+
+    patch_rows = config['patch_rows']
+    patch_cols = config['patch_cols']
+    patch_size = config['input_size']
+
+    with torch.no_grad():
+        for k in range(len(eval_dataset)-1):
+            im1, _ = eval_dataset[k]
+            im2, _ = eval_dataset[k+1]
+
+            _, s, mean1 = model(im1.view(1, patch_rows, patch_cols, patch_size))
+            _, _, mean2 = model(im2.view(1, patch_rows, patch_cols, patch_size))
+            s = s[0]
+            mean1 = mean1[0]
+            mean2 = mean2[0]
+
+            slope = mean2 - mean1
+            steps = 20
+
+            fig, ax = plt.subplots(1, steps)
+
+            for i in range(steps):
+                delta = slope * i / steps
+
+                ax[i].axis('off')
+                ax[i].imshow(unpatch_image(model.sample_image(torch.zeros_like(s),mean1 + delta)[0], patch_rows, patch_cols, patch_size))
+
+            plt.show()
+
+def sample_space(filepath="VAE.pt", device=torch.device("cpu")):
+    checkpoint = torch.load(f'Models/{filepath}', map_location=device)
+
+    config = checkpoint['config']
+    model = na.TwoDimensionalGRUSeq2Seq(**config)
+    model.load_state_dict(checkpoint['model'])
+    model.forcing = 0.0
+
+    patch_rows = config['patch_rows']
+    patch_cols = config['patch_cols']
+    patch_size = config['input_size']
+
+    pixel_dataset = md.PixelDataset(prc_len=patch_rows)
+
+    with torch.no_grad():
+        # Calculate global mean & global standard deviation
+        mean = torch.zeros(config['latent_size'])
+        std = torch.zeros(config['latent_size'])
+
+        dat_loader = DataLoader(pixel_dataset, 2000, shuffle=False)
+        progress = tqdm(dat_loader, desc="Calculating mean & std")
+        for _, data in enumerate(progress):
+            ims, labels = data
+
+            _, log_vars, means = model(ims)
+
+            mean = mean + torch.sum(means, dim=0)
+            std = std + torch.sum(torch.exp(log_vars/2), dim=0)
+
+        mean = mean / len(pixel_dataset)
+        std = std / len(pixel_dataset)
+
+        # Generate a 5 x 5 grid of samples based off of global mean & standard deviation
+        fig, ax = plt.subplots(5, 5)
+        for i in range(5):
+            for j in range(5):
+                samp = mean + std * torch.randn(config['latent_size'])
+
+                im = model.forward(samp, just_decoder=True, reparameterize=False)
+
+                ax[i, j].axis('off')
+                ax[i, j].imshow(unpatch_image(im[0], patch_rows, patch_cols, patch_size))
+
+        plt.show()
+
+if __name__ == "__main__":
+    # generator(filepath="VAE.pt")
+    # test_centering(filepath="VAE.pt")
+    interp()
+    # sample_space()

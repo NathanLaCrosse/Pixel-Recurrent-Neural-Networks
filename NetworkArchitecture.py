@@ -271,9 +271,10 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         self.device = device
         self.forcing = forcing
 
-    def forward(self, x, just_latent=False, just_decoder=False):
-        batch_size = x.size()[0]
+    def forward(self, x, just_latent=False, just_decoder=False, reparameterize=True):
+        batch_size = 1
         if not just_decoder:
+            batch_size = x.size()[0]
             _, pr, pc, bd = x.size()
             output, _, final_row, final_col = self.encoder(x, return_final_row_col=True)
 
@@ -294,11 +295,14 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
             mean = self.latent_to_mean(latent)
             if just_latent:
                 return logvar, mean
-        else:
+        elif reparameterize:
             logvar, mean = x
 
         # Reparameterize into a probability distribution
-        samp = self.reparameterize(logvar, mean)
+        if reparameterize:
+            samp = self.reparameterize(logvar, mean)
+        else:
+            samp = x
 
         # Expand latent vector back out
         latent_row = self.row_decompress(samp)
@@ -355,7 +359,10 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
             rep.append(full_im)
         rep = torch.stack(rep)
 
-        return rep[:, :, 1:, :], logvar, mean
+        if reparameterize:
+            return rep[:, :, 1:, :], logvar, mean
+        else:
+            return rep[:, :, 1:, :]
 
     def reparameterize(self, logvar, mean):
         coef = torch.randn_like(logvar).to(self.device)
