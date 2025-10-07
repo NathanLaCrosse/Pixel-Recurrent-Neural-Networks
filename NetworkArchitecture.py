@@ -292,7 +292,8 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
             # Concatenate to obtain latent vector
             latent = torch.cat((final_row, final_col), dim=1)
             logvar = self.latent_to_logvar(latent)
-            mean = self.latent_to_mean(latent)
+            logvar = torch.clamp(logvar, -10, 10) # Clamp to prevent overflow - std is exp of this value - so range is between e^-10 and e^10
+            mean = self.latent_to_mean(latent) 
             if just_latent:
                 return logvar, mean
         elif reparameterize:
@@ -366,7 +367,7 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
 
     def reparameterize(self, logvar, mean):
         coef = torch.randn_like(logvar).to(self.device)
-        return mean + logvar * coef
+        return mean + torch.exp(logvar/2) * coef
 
     def to_latent(self, x):
         return self.forward(x, just_latent=True)
