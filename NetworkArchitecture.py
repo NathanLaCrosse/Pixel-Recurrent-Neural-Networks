@@ -316,8 +316,10 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         # First column counts as a "start of image" column -> cropped out at the end
         # reconstructed = torch.zeros((batch_size, pr, pc + 1, bd))
         replica = [[] for s in range(batch_size)]
+        replica_preds = [[] for s in range(batch_size)]
         for s in range(batch_size):
             replica[s] = [[] for b in range(self.patch_rows)]
+            replica_preds[s] = [[] for b in range(self.patch_rows)]
 
         # Store all of the hidden data on a grid - including our final row and column data
         # Note hidden_grid[:, 0, 0, :] is unused data
@@ -328,6 +330,7 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
         for row in range(self.patch_rows):
             for s in range(batch_size):
                 replica[s][row].append(torch.zeros(self.input_size, device=self.device))
+                replica_preds[s][row].append(torch.zeros(self.input_size, device=self.device))
             for col in range(self.patch_cols):
                 above = hidden_grid[:, row, col + 1, :]
                 left = hidden_grid[:, row + 1, col, :]
@@ -351,11 +354,12 @@ class TwoDimensionalGRUSeq2Seq(nn.Module):
                         replica[s][row].append(x_next[s])
                     else:
                         replica[s][row].append((x[s, row, col, :] + 1) / 2) # force value from x
+                    replica_preds[s][row].append(x_next[s]) 
 
-        # fully stack replica into a tensor
+        # fully stack replica_pred into a tensor - this is our predicted image
         rep = []
         for s in range(batch_size):
-            cols = [torch.stack(replica[s][row]) for row in range(self.patch_rows)]
+            cols = [torch.stack(replica_preds[s][row]) for row in range(self.patch_rows)]
             full_im = torch.stack(cols)
             rep.append(full_im)
         rep = torch.stack(rep)
