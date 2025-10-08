@@ -1,7 +1,10 @@
+import os
 import torch
 import pandas as pd
 import tqdm as tqdm
 from torch.utils.data import Dataset
+import cv2
+import matplotlib.pyplot as plt
 
 # MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
@@ -39,7 +42,40 @@ def to_patches(image, prc_len):
     return patched_tensor
 
 
+def process_image(path, size, prc_len):
+    im = cv2.resize(cv2.imread(path, cv2.IMREAD_GRAYSCALE), (size, size))
+    im = to_patches(im, prc_len)
+    return im
+
+
+def generate_directory_list(filepath, samples):
+    directories = []
+    for root, dirs, files in os.walk(filepath):
+        for file in tqdm.tqdm(files):
+            path = os.path.join(root, file)
+            path = path.replace("/", "\\")
+            directories.append(path)
+            if len(directories) > samples:
+                break
+    return directories
+
+
 class PixelDataset(Dataset):
+
+    def __init__(self, filepath = 'Datasets/Test', prc_len = 6, resize = 36, samples=1000000):
+        self.directories = generate_directory_list(filepath, samples)
+        self.resize = resize
+        self.prc_len = prc_len
+
+    def __len__(self):
+        return len(self.directories)
+
+    def __getitem__(self, idx):
+        image = self.directories[idx]
+        return process_image(image, self.resize, self.prc_len), None
+
+
+class MNISTPixelDataset(Dataset):
 
     def __init__(self, filepath = 'Datasets/mnist_train.csv', prc_len = 7, samples=1000000):
         labels, images = load_mnist(filepath, samples=samples)
@@ -53,3 +89,6 @@ class PixelDataset(Dataset):
     def __getitem__(self, idx):
         return self.patched_images[idx], self.labels[idx]
 
+dataset = PixelDataset()
+image1 = dataset.__getitem__(0)
+print(image1)
