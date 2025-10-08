@@ -9,31 +9,55 @@ from tqdm import tqdm
 import math
 
 def unpatch_image(im, patch_rows, patch_cols, patch_size):
+    """
+    Convert a flattened grid of patches back into a 28x28 image
+
+    :param im: (patch_rows * patch_cols * patch_size)
+    :param patch_rows: number of patch rows in the grid
+    :param patch_cols: number of patch columns in the grid
+    :param patch_size: number of pixels per patch
+
+    :return: 28x28 numpy array
+    """
+
+    # side length of each square patch
     patch_dim = int(np.sqrt(patch_size))
 
+    # bring to numpy and reshape to (rows, cols, h, w)
     im = im.numpy()
     image = im.reshape(patch_rows, patch_cols, patch_dim, patch_dim)
+
+    #
     image = image.transpose(0, 2, 1, 3)
+
+    # final 28x28 output image (assumes patch_rows/patch_cols * patch_dim == 28)
     image = image.reshape(28, 28)
 
     return image
 
 def generator(filepath, device=torch.device("cpu")):
+    """
+    Load a trained checkpoint and visualize model reconstructions
+    on MNIST test samples as True vs Predicted
+    """
     checkpoint = torch.load(f'Models/{filepath}', map_location=device)
 
+    # recreate model from stored hyperparameters, and then loading weights
     config = checkpoint['config']
     model = na.TwoDimensionalGRUSeq2Seq(**config)
     eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
     model.load_state_dict(checkpoint['model'])
-    model.forcing = 0.0
+    model.forcing = 0.0 # turn off teacher forcing for evaluation
 
     patch_rows = config['patch_rows']
     patch_cols = config['patch_cols']
     patch_size = config['input_size']
 
+    # parameter count
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params}")
 
+    # visualize reconstructions
     with torch.no_grad():
         for im, label in eval_dataset:
             pred, log_var, mean = model(im.view(1, patch_rows, patch_cols, patch_size))
@@ -48,15 +72,21 @@ def generator(filepath, device=torch.device("cpu")):
 
 
 
-
+# training loop
 def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_size = 16,
                     embedding_size = 32, hidden_size = 64, patch_rows = 7, patch_cols = 7,
                     latent_size = 64, num_layers = 1, forcing = 0.5, model_file_name = 'Omni.pt',
                     pre_trained=None, beta_max=1):
+    """
+    Train the TwoDimensionalGRUSeq2Seq as a VAE-like model
+    on MNIST patches
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device {device}")
 
     pixel_dataset = md.PixelDataset(prc_len=patch_rows)
+
+    # initialize or reuse model
     if pre_trained is None:
         model = na.TwoDimensionalGRUSeq2Seq(input_size, embedding_size, hidden_size, patch_rows,
                                         patch_cols, latent_size, num_layers, forcing, device)
@@ -102,6 +132,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
 
             global_steps += 1
 
+        # save at the end of each epoch
         na.save_checkpoint(input_size, embedding_size, hidden_size, patch_rows,
                     patch_cols, latent_size, num_layers, forcing, model, model_file_name)
 
@@ -110,7 +141,6 @@ def test_centering(filepath="VAE.pt", device=torch.device("cpu")):
     Visualize whether or not there is a fuzzy region around each of the means in the VAE encoding.
     Essentially, we generate a bunch of vectors close to the mean and see what they look like
     """
-
     checkpoint = torch.load(f'Models/{filepath}', map_location=device)
 
     config = checkpoint['config']
@@ -126,8 +156,8 @@ def test_centering(filepath="VAE.pt", device=torch.device("cpu")):
     total_params = sum(p.numel() for p in model.parameters())
     print(f"Total parameters: {total_params}")
 
-    per_row = 10
-    scales = [1, 10, 100, 1000]
+    per_row = 10                    # number of samples for scale row
+    scales = [1, 10, 100, 1000]     # multipliers for log_var to exaggerate sampling speed
 
     with torch.no_grad():
         for im, label in eval_dataset:
@@ -166,6 +196,7 @@ def interp(filepath="VAE.pt", device=torch.device("cpu")):
             im1, _ = eval_dataset[k]
             im2, _ = eval_dataset[k+1]
 
+            # encode to get mean
             _, s, mean1 = model(im1.view(1, patch_rows, patch_cols, patch_size))
             _, _, mean2 = model(im2.view(1, patch_rows, patch_cols, patch_size))
             s = s[0]
@@ -181,11 +212,15 @@ def interp(filepath="VAE.pt", device=torch.device("cpu")):
                 delta = slope * i / steps
 
                 ax[i].axis('off')
+                # decode a specific latent point
                 ax[i].imshow(unpatch_image(model.forward(mean1 + delta, just_decoder=True, reparameterize=False)[0], patch_rows, patch_cols, patch_size))
 
             plt.show()
 
 def sample_space(filepath="VAE.pt", device=torch.device("cpu")):
+    """
+    Estimate global latent mean and standard deviation over the training set.
+    """
     checkpoint = torch.load(f'Models/{filepath}', map_location=device)
 
     config = checkpoint['config']
@@ -223,10 +258,10 @@ def sample_space(filepath="VAE.pt", device=torch.device("cpu")):
             fig, ax = plt.subplots(dim, dim)
             for i in range(dim):
                 for j in range(dim):
+                    # sample one latent vector
                     samp = mean + std * torch.randn(config['latent_size'])
-
+                    # decode-only forward
                     im = model.forward(samp, just_decoder=True, reparameterize=False)
-
                     ax[i, j].axis('off')
                     ax[i, j].imshow(unpatch_image(im[0], patch_rows, patch_cols, patch_size))
 
