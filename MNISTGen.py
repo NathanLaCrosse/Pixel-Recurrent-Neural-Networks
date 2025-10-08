@@ -76,7 +76,7 @@ def train_generation(epochs = 1, batch_size = 256, learning_rate = 0.001, input_
         progress_bar = tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
         running_loss = 0.0
 
-        cycles_per_epoch = 3
+        cycles_per_epoch = 0.5
         epoch_len = len(dat_loader)
         global_steps = 0
         steps_per_cycle = epoch_len // cycles_per_epoch
@@ -233,14 +233,14 @@ def sample_space(filepath="VAE.pt", device=torch.device("cpu")):
             plt.show()
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # loaded = na.load_checkpoint(filepath="VAE_dif_dim.pt", device=device)
-    # train_generation(30, batch_size=1024, learning_rate=0.001, input_size=16, embedding_size=20, hidden_size=32,
-    #                  patch_rows=7, patch_cols=7, latent_size=32, num_layers=1, forcing=0.5, model_file_name="VAE_dif_dim.pt", pre_trained=None, beta_max=3)
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # loaded = na.load_checkpoint(filepath="RefinedVAE.pt", device=device)
+    # train_generation(50, batch_size=2048, learning_rate=0.0001, input_size=16, embedding_size=20, hidden_size=50,
+    #                  patch_rows=7, patch_cols=7, latent_size=40, num_layers=1, forcing=0.95, model_file_name="VAE5.pt", pre_trained=loaded, beta_max=10)
  
     # generator(filepath="VAE_dif_dim.pt")
 
-    # generator(filepath="VAE.pt")
-    # test_centering(filepath="VAE_dif_dim.pt")
-    # interp(filepath="VAE_dif_dim.pt")
-    sample_space(filepath="VAE_dif_dim.pt")
+    # generator(filepath="VAE4.pt")
+    # test_centering(filepath="VAE2.pt")
+    # interp(filepath="VAE3.pt")
+    sample_space(filepath="RefinedVAE2.pt")
