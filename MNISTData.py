@@ -4,7 +4,7 @@ import pandas as pd
 import tqdm as tqdm
 from torch.utils.data import Dataset
 import cv2
-import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 # MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
@@ -24,7 +24,7 @@ def load_mnist(filepath, samples=60000):
 
     return labels, images
 
-def to_patches(image, prc_len):
+def to_patches(image, prc_len, one_hot):
     """
     Assumptions: Example Image is always square, Image is grayscale
     prc_len: Length of patch rows and columns
@@ -34,17 +34,18 @@ def to_patches(image, prc_len):
     patch_len = int(len(image[0]) / prc_len)
     patch_size = int(patch_len ** 2)
 
-    image = image / 255 * 2 - 1
     patched_image = image.reshape(prc_len, patch_len, prc_len, patch_len)
     patched_image = patched_image.transpose(0, 2, 1, 3)
     patched_image = patched_image.reshape(prc_len, prc_len, patch_size)
-    patched_tensor = torch.tensor(patched_image, dtype=torch.float32)
-    return patched_tensor
+    if one_hot:
+        return F.one_hot(torch.tensor(patched_image, dtype=torch.long), 256)
+    else:
+        return torch.tensor((patched_image / 255) * 2 - 1, dtype=torch.float32)
 
 
 def process_image(path, size, prc_len):
     im = cv2.resize(cv2.imread(path, cv2.IMREAD_GRAYSCALE), (size, size))
-    im = to_patches(im, prc_len)
+    im = to_patches(im, prc_len, False)
     return im
 
 
@@ -79,16 +80,13 @@ class MNISTPixelDataset(Dataset):
 
     def __init__(self, filepath = 'Datasets/mnist_train.csv', prc_len = 7, samples=1000000):
         labels, images = load_mnist(filepath, samples=samples)
+        self.prc_len = prc_len
         self.labels = labels
-        self.patched_images = [to_patches(im, prc_len) for im in tqdm.tqdm(images)]
         self.raw_images = images
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        return self.patched_images[idx], self.labels[idx]
-
-dataset = PixelDataset()
-image1 = dataset.__getitem__(0)
-print(image1)
+        return (to_patches(self.raw_images[idx], self.prc_len, False),
+                to_patches(self.raw_images[idx], self.prc_len, True))
