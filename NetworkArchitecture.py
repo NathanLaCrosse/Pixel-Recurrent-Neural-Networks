@@ -476,12 +476,12 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
             _, batch_size, pr, pc, bd = x.size()
 
         # Storage for previous layer's output
-        output = {ref: torch.zeros((batch_size, pr, pc, self.hidden_size), device=self.device)
+        output = {ref: torch.zeros((batch_size, pr, pc + 1, self.hidden_size), device=self.device)
                   for ref in self.direction_ref}
 
         # Initialize previous hidden data
         if preset_row is None:
-            prev_rows = {ref: torch.full((batch_size, pc, self.hidden_size), fill_value=0,
+            prev_rows = {ref: torch.full((batch_size, pc + 1, self.hidden_size), fill_value=0,
                                          dtype=torch.float32, device=self.device) for ref in self.direction_ref}
         else:
             prev_rows = preset_row
@@ -504,6 +504,9 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
             "Bottom-Right": (pr - 1, pc - 1)
         }
 
+        # Add an extra column to x
+        x = torch.cat((torch.zeros((batch_size, pr, 1, self.input_size)), x),dim=2)
+
         last_col = None
         for row in range(pr):
             # Initialize previous hidden state to the (left/right)
@@ -513,7 +516,7 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
             else:
                 last_col = {ref: preset_col[ref][:, row, :] for ref in self.direction_ref}
 
-            for col in range(pc):
+            for col in range(pc+1):
                 # For each GRU, calculate its forward step
                 for key in self.direction_ref:
                     # Grab the above/below row hidden vector
@@ -554,7 +557,7 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
 
         # Package up the final hidden vectors
         h_final = torch.cat([last_col[key] for key in self.direction_ref], dim=1)
-        output = torch.stack([output[key] for key in self.direction_ref])
+        output = torch.stack([output[key][:,:,1:,:] for key in self.direction_ref])
 
         # Now, to get logits, we embed each of the hidden vectors (with a linear layer)
         logits = torch.zeros((len(self.direction_ref), batch_size, pr, pc, self.input_size, 256), device=self.device)
@@ -623,7 +626,7 @@ if __name__ == '__main__':
 
     # net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
     # net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
-    net = ClassifyingUnderlyingTwoDimensionalGRU(9, 10, 12, omnidirectionality=True)
+    net = ClassifyingUnderlyingTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
 
     test_tensor = torch.rand((5, 2, 3, 9))
 

@@ -5,8 +5,11 @@ from torch import nn
 from torch.utils.data import DataLoader
 import NetworkArchitecture as na
 import MNISTData as md
+import MNISTGen as mg
 from tqdm import tqdm
 import math
+
+# ----------------- Training Code -----------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 net = na.ClassifyingUnderlyingTwoDimensionalGRU(4, 20, 50, device=device)
@@ -16,7 +19,7 @@ loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 net = net.to(device)
 
-epochs = 100
+epochs = 10
 batch_size = 512
 
 for epoch in range(epochs):
@@ -38,7 +41,26 @@ for epoch in range(epochs):
         running_loss += loss.item()
         progress_bar.set_postfix({"Loss:" : loss.item()})
 
-    torch.save(net.state_dict(), "PixelClf.pt")
-    
-    if (epoch+1) % 10 == 0: 
-        torch.save(net.state_dict, f"{(epoch+1)//10}PixelClf.pt")
+    torch.save(net.state_dict(), "ReworkedPixelClf.pt")
+
+    # if (epoch+1) % 10 == 0:
+    #     torch.save(net.state_dict, f"{(epoch+1)//10}PixelClf.pt")
+
+# ----------------- Testing Code -----------------
+# net = na.ClassifyingUnderlyingTwoDimensionalGRU(4, 20, 50)
+# state_dict = torch.load("PixelClf.pt", map_location=torch.device('cpu'))
+# net.load_state_dict(state_dict)
+#
+# dat = md.MNISTPixelDataset(prc_len=14, filepath="Datasets/mnist_test.csv")
+#
+# im, label = dat[0]
+#
+# logits, output, h_final = net(im.view(1, 14, 14, 4))
+# vals = torch.argmax(logits, 5)
+#
+# unpatched = mg.unpatch_image(vals, 14, 14, 4)
+#
+# fig, ax = plt.subplots(1, 2)
+# ax[0].imshow(mg.unpatch_image(im, 14, 14, 4), cmap='gray')
+# ax[1].imshow(unpatched, cmap='gray')
+# plt.show()
