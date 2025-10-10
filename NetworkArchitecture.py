@@ -557,7 +557,7 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
         output = torch.stack([output[key] for key in self.direction_ref])
 
         # Now, to get logits, we embed each of the hidden vectors (with a linear layer)
-        logits = torch.zeros((len(self.direction_ref), batch_size, pr, pc, self.input_size, 256))
+        logits = torch.zeros((len(self.direction_ref), batch_size, pr, pc, self.input_size, 256), device=self.device)
         for d in range(len(self.direction_ref)):
             for row in range(pr):
                 for col in range(pc):
