@@ -505,7 +505,7 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
         }
 
         # Add an extra column to x
-        x = torch.cat((torch.zeros((batch_size, pr, 1, self.input_size)), x),dim=2)
+        x = torch.cat((torch.zeros((batch_size, pr, 1, self.input_size), device=self.device), x),dim=2)
 
         last_col = None
         for row in range(pr):
