@@ -268,14 +268,14 @@ def sample_space(filepath="VAE.pt", device=torch.device("cpu")):
             plt.show()
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     # loaded = na.load_checkpoint(filepath="VAE_dif_dim.pt", device=device)
     # train_generation(30, batch_size=1024, learning_rate=0.001, input_size=16, embedding_size=20, hidden_size=32,
     #                  patch_rows=7, patch_cols=7, latent_size=32, num_layers=1, forcing=0.5, model_file_name="VAE_dif_dim.pt", pre_trained=None, beta_max=3)
  
     # generator(filepath="VAE_dif_dim.pt")
 
-    # generator(filepath="VAE.pt")
+    # generator(filepath="RefinedVAE.pt")
     # test_centering(filepath="VAE_dif_dim.pt")
     # interp(filepath="VAE_dif_dim.pt")
-    sample_space(filepath="VAE_dif_dim.pt")
+    sample_space(filepath="RefinedVAE.pt")

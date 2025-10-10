@@ -409,29 +409,228 @@ def load_checkpoint(filepath, device):
 
     return model
 
+
+
+
+
+
+
+
+
+class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
+    def __init__(self, input_size, embedding_size, hidden_size : int, dropout=0, omnidirectionality=False,
+                 device=torch.device('cpu')):
+        super(ClassifyingUnderlyingTwoDimensionalGRU, self).__init__()
+        if not omnidirectionality:
+            self.direction_ref = ["Top-Left"]
+        else:
+            self.direction_ref = ["Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right"]
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.embedding_size = embedding_size
+        self.dropout = dropout
+
+        self.grus = nn.ModuleDict({ref: nn.GRU(input_size=embedding_size+2, hidden_size=2*hidden_size, num_layers=1,
+                                               batch_first=True) for ref in self.direction_ref})
+
+        self.embedding_in = nn.ModuleDict({ref: nn.Linear(input_size, embedding_size) for
+                                         ref in self.direction_ref})
+
+        # self.residual_projs = nn.ModuleDict({ref: nn.Linear(in_features=embedding_size+2,
+        #                                                     out_features=self.hidden_size) for ref in
+        #                                      self.direction_ref})
+
+        self.compressors = nn.ModuleDict({ref: nn.Linear(in_features=2 * hidden_size,
+                                                         out_features=hidden_size) for ref in self.direction_ref})
+
+        self.embedding_out = nn.ModuleDict({ref: nn.ModuleList([nn.Linear(hidden_size, 256) for i in range(input_size)]) for ref in self.direction_ref})
+
+        self.norms = nn.ModuleDict({ref: nn.LayerNorm(hidden_size) for ref in self.direction_ref})
+        self.device = device
+
+    def forward(self, x, preset_row=None, preset_col=None):
+        """
+        Forward pass of the 2-D GRU
+
+        Args:
+            x: (batch_size, patch_rows, patch_cols, block_dim**2). Blocks are flattened across final dimension
+                - for unidirectional
+            x: (D, batchsize, patch_rows, patch_cols, block_dim**2). Format for multilayered input (from previous layer)
+                - D is either 1 or 4 depending on directionality
+
+        Returns:
+            output: (D, batch_size, patch_rows, patch_cols, block_dim**2). The hidden value tensor that stores all
+                hidden vectors calculated by the MultidimensionalGRU. D = 1 if omnidirectionality = False, 4 otherwise
+            h_final: (batch_size, hidden_size * D). The concatenation of all final hidden vectors of the RNN.
+
+
+        """
+
+        # The sequence length is known: im_rows * im_cols
+        mode = "first_layer"
+        if len(x.size()) == 4:
+            batch_size, pr, pc, bd = x.size()
+        else:
+            mode = "extra_layer"
+            _, batch_size, pr, pc, bd = x.size()
+
+        # Storage for previous layer's output
+        output = {ref: torch.zeros((batch_size, pr, pc, self.hidden_size), device=self.device)
+                  for ref in self.direction_ref}
+
+        # Initialize previous hidden data
+        if preset_row is None:
+            prev_rows = {ref: torch.full((batch_size, pc, self.hidden_size), fill_value=0,
+                                         dtype=torch.float32, device=self.device) for ref in self.direction_ref}
+        else:
+            prev_rows = preset_row
+
+        # Initialize current hidden rows
+        cur_rows = {ref: [] for ref in self.direction_ref}
+
+        # Store the direction of each of the GRUs in (row, col) format
+        directions = {
+            "Top-Left": (1, 1),
+            "Top-Right": (1, -1),
+            "Bottom-Left": (-1, 1),
+            "Bottom-Right": (-1, -1)
+        }
+        # Store the starting locations of each of the GRUs in (row, col) format
+        starts = {
+            "Top-Left": (0, 0),
+            "Top-Right": (0, pc - 1),
+            "Bottom-Left": (pr - 1, 0),
+            "Bottom-Right": (pr - 1, pc - 1)
+        }
+
+        last_col = None
+        for row in range(pr):
+            # Initialize previous hidden state to the (left/right)
+            if preset_col is None:
+                last_col = {ref: torch.zeros((batch_size, self.hidden_size), dtype=torch.float32, device=self.device)
+                            for ref in self.direction_ref}
+            else:
+                last_col = {ref: preset_col[ref][:, row, :] for ref in self.direction_ref}
+
+            for col in range(pc):
+                # For each GRU, calculate its forward step
+                for key in self.direction_ref:
+                    # Grab the above/below row hidden vector
+                    last_row = prev_rows[key][:, starts[key][1] + directions[key][1] * col, :]
+
+                    # Load in the x_ij
+                    if mode == "first_layer":
+                        x_ij = x[:, starts[key][0] + directions[key][0] * row, starts[key][1] + directions[key][1] * col, :]
+                    else:
+                        x_ij = x[self.direction_ref.index(key), :, starts[key][0] + directions[key][0] * row, starts[key][1] + directions[key][1] * col, :]
+
+                    # Gather positional data to inject
+                    absolute_pos = torch.tensor([row / pr * 2 - 1, col / pc * 2 - 1] * batch_size,
+                        device=self.device).view(batch_size, 2)
+
+                    # Main loop is in this single step method
+                    h_ij = self.single_step(x_ij, absolute_pos, last_row, last_col[key], batch_size, key)
+
+                    # Update current row values
+                    cur_rows[key].append(h_ij)
+                    last_col[key] = h_ij
+
+            # Update previous row data now that the row is finished
+            for key in self.grus.keys():
+                saved_row = cur_rows[key]
+
+                # Make sure its saved in the correct direction
+                if directions[key][1] == -1:
+                    # Reverse the column order for right-to-left processing
+                    saved_row = saved_row[::-1]
+                saved_row = torch.stack(saved_row, dim=1)
+
+                row_dex = starts[key][0] + directions[key][0] * row
+                output[key][:, row_dex, :, :] = saved_row
+
+                prev_rows[key] = saved_row
+                cur_rows[key] = []
+
+        # Package up the final hidden vectors
+        h_final = torch.cat([last_col[key] for key in self.direction_ref], dim=1)
+        output = torch.stack([output[key] for key in self.direction_ref])
+
+        # Now, to get logits, we embed each of the hidden vectors (with a linear layer)
+        logits = torch.zeros((len(self.direction_ref), batch_size, pr, pc, self.input_size, 256))
+        for d in range(len(self.direction_ref)):
+            for row in range(pr):
+                for col in range(pc):
+                    for i in range(self.input_size):
+                        logits[d, :, row, col, i, :] = self.embedding_out[self.direction_ref[d]][i](output[d, :, row, col, :])
+
+        """, last_col["Bottom-Left"], last_col["Bottom-Right"]"""
+        return logits, output, h_final
+        # if not return_final_row_col:
+        #     return output, h_final
+        # else:
+        #     return output, h_final, final_row, final_col
+
+    def single_step(self, x, abs_pos, hidden_vert, hidden_horiz, batch_size, key):
+        """
+        Defines a single step of the GRU network, given a vertical hidden and a horizontal hidden.
+        Useful for redefining the forward method.
+        """
+
+        # Embed x
+        x = self.embedding_in[key](x)
+
+        # Inject positional data
+        x = torch.cat((x, abs_pos), dim=1)
+
+        # Combine the two previous hidden vectors (one from above/below one from left/right)
+        previous_data = torch.cat((hidden_vert, hidden_horiz), dim=1)
+
+        # Reshaping
+        x = x.view(batch_size, 1, self.embedding_size + 2)
+        previous_data = previous_data.view(1, batch_size, self.hidden_size * 2)
+
+        # Throw data into the underlying gru
+        o, h = self.grus[key](x, previous_data)
+        h = h[-1]
+
+        # Translate new hidden vector back into the proper size
+        h = self.compressors[key](h)
+
+        # Create a residual based off of x_ij
+        # residual = self.residual_projs[key](x).view(batch_size, self.hidden_size)
+        # h = residual + h
+
+        h = self.norms[key](h)
+
+        return h
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
     # net = OmniDirectionalTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
 
     # net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
     # net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
+    net = ClassifyingUnderlyingTwoDimensionalGRU(9, 10, 12, omnidirectionality=True)
 
     test_tensor = torch.rand((5, 2, 3, 9))
-    # output, test_result, final_row, final_col = net.forward(test_tensor, return_final_row_col=True)
-    #
-    # print("Verifying output row:")
-    # print(output[0, 0, 1, :, :])
-    # print(final_row["Top-Left"][0])
-    #
-    # print("Verifying output col:")
-    # print(output[0, 0, :, 2, :])
-    # print(final_col["Top-Left"][0])
 
+    logits, output, h_final = net(test_tensor)
 
-    # labels = torch.rand((4,1))
-    # args = torch.argmax(test_result)
-
-    net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
-    repla, logvar, mean = net(test_tensor)
+    # net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
+    # repla, logvar, mean = net(test_tensor)
 
     # latent = net.to_latent(test_tensor)
     # to_im = net.to_image(latent)
