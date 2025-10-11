@@ -472,11 +472,13 @@ class GenerativeTwoDimensionalGRU(nn.Module):
         hiddens = torch.zeros((batch_size, pr+1, pc+1, self.hidden_size), device=self.device)
 
         # Append an extra column to x
+        x = x.view(batch_size, pr, pc, self.input_size)
         x = torch.cat((torch.zeros((batch_size, pr, 1, self.input_size), device=self.device), x), dim=2)
 
         # Initialize generated image
         # Size: (batch_size, pr, pc+1, self.input_size)
-        pred = [[[[] for k in range(pc+1)] for j in range(pr)] for i in range(batch_size)]
+        # pred = [[[[] for k in range(pc+1)] for j in range(pr)] for i in range(batch_size)]
+        pred = torch.zeros((batch_size, pr, pc+1, self.input_size, 256), device=self.device)
 
         for row in range(pr):
             left_hidden = torch.zeros((batch_size, self.hidden_size), device=self.device)
@@ -487,11 +489,10 @@ class GenerativeTwoDimensionalGRU(nn.Module):
 
                 # Teacher forcing for which previous value to use
                 rand = torch.rand(1).item()
-                # if rand < self.forcing:
-                #     x_prev = x[:, row, col, :] # force
-                # else:
-                #     x_prev = left_x
-                x_prev = x_prev = x[:, row, col, :]
+                if rand < self.forcing:
+                    x_prev = x[:, row, col, :] # force
+                else:
+                    x_prev = left_x
 
                 # Embed x
                 x_prev = self.embed_patch(x_prev)
@@ -514,21 +515,24 @@ class GenerativeTwoDimensionalGRU(nn.Module):
                 # Convert x into a predicted value
                 temp_pred_x = torch.zeros((batch_size, self.input_size), device=self.device)
                 for idx in range(len(self.hidden_to_pixel)):
-                    for b in range(batch_size):
-                        x_pred = self.hidden_to_pixel[idx](h[b, :])
-                        pred[b][row][col].append(x_pred)
-                        temp_pred_x[b, idx] = torch.argmax(x_pred).item() * 2 / 255 - 1
+                    x_pred = self.hidden_to_pixel[idx](h)
+                    pred[:, row, col, idx, :] = x_pred
+
+                    # for b in range(batch_size):
+                    #     x_pred = self.hidden_to_pixel[idx](h[b, :])
+                    #     pred[b][row][col].append(x_pred)
+                    #     temp_pred_x[b, idx] = torch.argmax(x_pred).item() * 2 / 255 - 1
                 left_x = temp_pred_x
 
         # Combine predicted data into a single tensor
         # Size: batch_size, pr, pc, self.input_size, 256
-        total_pred = torch.zeros((batch_size, pr, pc+1, self.input_size, 256), device=self.device)
-        for b in range(batch_size):
-            for row in range(pr):
-                for col in range(pc+1):
-                    total_pred[b, row, col] = torch.stack(pred[b][row][col])
+        # total_pred = torch.zeros((batch_size, pr, pc+1, self.input_size, 256), device=self.device)
+        # for b in range(batch_size):
+        #     for row in range(pr):
+        #         for col in range(pc+1):
+        #             total_pred[b, row, col] = torch.stack(pred[b][row][col])
 
-        return total_pred[:, :, 1:, :]
+        return pred[:, :, 1:, :, :]
 
 
 
@@ -744,7 +748,7 @@ if __name__ == '__main__':
 
     test_tensor = torch.rand((5, 2, 3, 9))
 
-    net(test_tensor)
+    logits = net(test_tensor)
 
     # net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
     # repla, logvar, mean = net(test_tensor)
