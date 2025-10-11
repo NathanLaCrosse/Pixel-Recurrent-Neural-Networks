@@ -38,7 +38,8 @@ def to_patches(image, prc_len, one_hot):
     patched_image = patched_image.transpose(0, 2, 1, 3)
     patched_image = patched_image.reshape(prc_len, prc_len, patch_size)
     if one_hot:
-        return F.one_hot(torch.tensor(patched_image, dtype=torch.long), 256)
+        # return F.one_hot(torch.tensor(patched_image, dtype=torch.long), 256)
+        return torch.tensor(patched_image, dtype=torch.long)
     else:
         return torch.tensor((patched_image / 255) * 2 - 1, dtype=torch.float32)
 

@@ -1,6 +1,7 @@
 import random
 
 import torch
+import numpy as np
 import torch.nn.functional as F
 from torch import nn
 from torch.nn.functional import embedding
@@ -410,7 +411,124 @@ def load_checkpoint(filepath, device):
     return model
 
 
+    def single_step(self, x, abs_pos, hidden_vert, hidden_horiz, batch_size, key):
+        """
+        Defines a single step of the GRU network, given a vertical hidden and a horizontal hidden.
+        Useful for redefining the forward method.
+        """
 
+        # Embed x
+        x = self.embedding_in[key](x)
+
+        # Inject positional data
+        x = torch.cat((x, abs_pos), dim=1)
+
+        # Combine the two previous hidden vectors (one from above/below one from left/right)
+        previous_data = torch.cat((hidden_vert, hidden_horiz), dim=1)
+
+        # Reshaping
+        x = x.view(batch_size, 1, self.embedding_size + 2)
+        previous_data = previous_data.view(1, batch_size, self.hidden_size * 2)
+
+        # Throw data into the underlying gru
+        o, h = self.grus[key](x, previous_data)
+        h = h[-1]
+
+        # Translate new hidden vector back into the proper size
+        h = self.compressors[key](h)
+
+        # Create a residual based off of x_ij
+        # residual = self.residual_projs[key](x).view(batch_size, self.hidden_size)
+        # h = residual + h
+
+        h = self.norms[key](h)
+
+        return h
+
+
+class GenerativeTwoDimensionalGRU(nn.Module):
+    def __init__(self, input_size, embedding_size, hidden_size, forcing=0.0, device=torch.device('cpu')):
+        super(GenerativeTwoDimensionalGRU, self).__init__()
+
+        self.input_size = input_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.device = device
+        self.forcing = forcing
+
+        self.gru = nn.GRU(input_size=embedding_size+2, hidden_size=2*hidden_size, num_layers=1, batch_first=True)
+        self.embed_patch = nn.Linear(input_size, embedding_size)
+        self.compress_gru_result = nn.Linear(2*hidden_size, hidden_size)
+        self.hidden_to_pixel = nn.ModuleList([nn.Sequential(
+            nn.Linear(hidden_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, 256)
+        ) for i in range(input_size)])
+
+    def forward(self, x):
+        batch_size, pr, pc, bd = x.size()
+
+        # Initialize grid of hidden vectors - includes an extra row for padding
+        hiddens = torch.zeros((batch_size, pr+1, pc+1, self.hidden_size), device=self.device)
+
+        # Append an extra column to x
+        x = torch.cat((torch.zeros((batch_size, pr, 1, self.input_size), device=self.device), x), dim=2)
+
+        # Initialize generated image
+        # Size: (batch_size, pr, pc+1, self.input_size)
+        pred = [[[[] for k in range(pc+1)] for j in range(pr)] for i in range(batch_size)]
+
+        for row in range(pr):
+            left_hidden = torch.zeros((batch_size, self.hidden_size), device=self.device)
+            left_x = torch.zeros((batch_size, self.input_size), device=self.device)
+
+            for col in range(pc+1):
+                above_hidden = hiddens[:, row, col, :]
+
+                # Teacher forcing for which previous value to use
+                rand = torch.rand(1).item()
+                # if rand < self.forcing:
+                #     x_prev = x[:, row, col, :] # force
+                # else:
+                #     x_prev = left_x
+                x_prev = x_prev = x[:, row, col, :]
+
+                # Embed x
+                x_prev = self.embed_patch(x_prev)
+
+                # Inject positional data into patch input
+                absolute_pos = torch.tensor([row / pr * 2 - 1, col / pc * 2 - 1] * batch_size, device=self.device).view(batch_size, 2)
+                x_prev = torch.cat((x_prev, absolute_pos), dim=1).view(batch_size, 1, self.embedding_size + 2)
+
+                # Combine hidden data
+                previous_data = torch.cat((above_hidden, left_hidden), dim=1).view(1, batch_size, self.hidden_size * 2)
+
+                # Throw data into the underlying gru
+                o, h = self.gru(x_prev, previous_data)
+                h = h[-1]
+
+                # Translate new hidden vector back into the proper size
+                h = self.compress_gru_result(h)
+                hiddens[:, row+1, col, :] = h
+
+                # Convert x into a predicted value
+                temp_pred_x = torch.zeros((batch_size, self.input_size), device=self.device)
+                for idx in range(len(self.hidden_to_pixel)):
+                    for b in range(batch_size):
+                        x_pred = self.hidden_to_pixel[idx](h[b, :])
+                        pred[b][row][col].append(x_pred)
+                        temp_pred_x[b, idx] = torch.argmax(x_pred).item() * 2 / 255 - 1
+                left_x = temp_pred_x
+
+        # Combine predicted data into a single tensor
+        # Size: batch_size, pr, pc, self.input_size, 256
+        total_pred = torch.zeros((batch_size, pr, pc+1, self.input_size, 256), device=self.device)
+        for b in range(batch_size):
+            for row in range(pr):
+                for col in range(pc+1):
+                    total_pred[b, row, col] = torch.stack(pred[b][row][col])
+
+        return total_pred[:, :, 1:, :]
 
 
 
@@ -436,10 +554,6 @@ class ClassifyingUnderlyingTwoDimensionalGRU(nn.Module):
 
         self.embedding_in = nn.ModuleDict({ref: nn.Linear(input_size, embedding_size) for
                                          ref in self.direction_ref})
-
-        # self.residual_projs = nn.ModuleDict({ref: nn.Linear(in_features=embedding_size+2,
-        #                                                     out_features=self.hidden_size) for ref in
-        #                                      self.direction_ref})
 
         self.compressors = nn.ModuleDict({ref: nn.Linear(in_features=2 * hidden_size,
                                                          out_features=hidden_size) for ref in self.direction_ref})
@@ -626,11 +740,11 @@ if __name__ == '__main__':
 
     # net = TwoDimensionalGRU(9, 12, 2, embedding_size=10, omnidirectionality=True)
     # net = UnderlyingTwoDimensionalGRU(9, 10, 12,  omnidirectionality=False)
-    net = ClassifyingUnderlyingTwoDimensionalGRU(9, 10, 12, omnidirectionality=False)
+    net = GenerativeTwoDimensionalGRU(9, 10, 12)
 
     test_tensor = torch.rand((5, 2, 3, 9))
 
-    logits, output, h_final = net(test_tensor)
+    net(test_tensor)
 
     # net = TwoDimensionalGRUSeq2Seq(9, 10, 12, 2, 3, forcing=0.0)
     # repla, logvar, mean = net(test_tensor)
