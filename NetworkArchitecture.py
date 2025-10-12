@@ -518,7 +518,7 @@ class GenerativeTwoDimensionalGRU(nn.Module):
                     x_pred = self.hidden_to_pixel[idx](h)
                     pred[:, row, col, idx, :] = x_pred
 
-                    temp_pred_x[:, idx] = torch.argmax(x_pred, dim=1)
+                    temp_pred_x[:, idx] = torch.argmax(x_pred, dim=1) * 2 / 255 - 1
                     # for b in range(batch_size):
                     #     x_pred = self.hidden_to_pixel[idx](h[b, :])
                     #     pred[b][row][col].append(x_pred)

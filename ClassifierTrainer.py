@@ -11,23 +11,22 @@ import MNISTGen as mg
 from tqdm import tqdm
 import math
 
+patch_size = 2
+patch_pixels = patch_size**2
+forcing_reduction_rate = 0.005
+min_forcing = 0.9
+
 # ----------------- Training Code -----------------
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-patch_size = 1
-patch_pixels = patch_size**2
-forcing_reduction_rate = 0.01
-min_forcing = 0.6
-
-net = na.GenerativeTwoDimensionalGRU(patch_pixels, 64, 25, forcing=1.0, device=device)
+net = na.GenerativeTwoDimensionalGRU(patch_pixels, 64, 50, forcing=1.0, device=device)
 
 dat = md.MNISTPixelDataset(prc_len=28//patch_size)
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
 net = net.to(device)
 
-epochs = 20
+epochs = 15
 batch_size = 512
 
 for epoch in range(epochs):
@@ -52,12 +51,12 @@ for epoch in range(epochs):
     net.forcing = max(min_forcing, net.forcing - forcing_reduction_rate)
     torch.save(net.state_dict(), "GenPixelClf.pt")
 
-#     if (epoch+1) % 10 == 0:
-#         torch.save(net.state_dict, f"{(epoch+1)//10}GenPixelClf.pt")
+#     if (epoch+1) % 20 == 0:
+#         torch.save(net.state_dict, f"{(epoch+1)//20}GenPixelClf.pt")
 
 # ----------------- Testing Code -----------------
 # device = torch.device('cpu')
-# net = na.GenerativeTwoDimensionalGRU(patch_size, 64, 25, forcing=0.7, device=device)
+# net = na.GenerativeTwoDimensionalGRU(patch_size, 64, 50, forcing=0.9, device=device)
 # state_dict = torch.load("GenPixelClf.pt", map_location=torch.device('cpu'))
 # net.load_state_dict(state_dict)
 
