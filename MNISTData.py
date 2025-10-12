@@ -4,7 +4,7 @@ import pandas as pd
 import tqdm as tqdm
 from torch.utils.data import Dataset
 import cv2
-import torch.nn.functional as F
+import numpy as np
 
 # MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
@@ -44,10 +44,17 @@ def to_patches(image, prc_len, one_hot):
         return torch.tensor((patched_image / 255) * 2 - 1, dtype=torch.float32)
 
 
-def process_image(path, size, prc_len):
-    im = cv2.resize(cv2.imread(path, cv2.IMREAD_GRAYSCALE), (size, size))
-    im = to_patches(im, prc_len, False)
-    return im
+def process_image(path, size, prc_len, color, one_hot):
+    if color:
+        image = cv2.imread(path)[100:400, 100:400]
+        b_channel, g_channel, r_channel = cv2.split(cv2.resize(image, (size, size)))
+        b_patch = to_patches(b_channel, prc_len, one_hot)
+        g_patch = to_patches(g_channel, prc_len, one_hot)
+        r_patch = to_patches(r_channel, prc_len, one_hot)
+        return np.stack([r_patch, g_patch, b_patch], axis=-1)
+    else:
+        im = cv2.resize(cv2.imread(path, cv2.IMREAD_GRAYSCALE)[100:400, 100:400], (size, size))
+        return to_patches(im, prc_len, one_hot)
 
 
 def generate_directory_list(filepath, samples):
@@ -64,17 +71,26 @@ def generate_directory_list(filepath, samples):
 
 class PixelDataset(Dataset):
 
-    def __init__(self, filepath = 'Datasets/Test', prc_len = 6, resize = 36, samples=1000000):
+    def __init__(self, filepath = 'Datasets/Cartoons', prc_len = 6, resize = 36, color = False, samples=1000000):
         self.directories = generate_directory_list(filepath, samples)
         self.resize = resize
         self.prc_len = prc_len
+        self.color = color
 
     def __len__(self):
         return len(self.directories)
 
+    def __getRawItem__(self, idx):
+        directory = self.directories[idx]
+        print(dir)
+        image = cv2.imread(directory)[:,:,::-1]
+        return cv2.resize(image[100:400, 100:400], (self.resize, self.resize))
+
+
     def __getitem__(self, idx):
         image = self.directories[idx]
-        return process_image(image, self.resize, self.prc_len), None
+        return (process_image(image, self.resize, self.prc_len, self.color, False),
+                process_image(image, self.resize, self.prc_len, self.color, True))
 
 
 class MNISTPixelDataset(Dataset):
