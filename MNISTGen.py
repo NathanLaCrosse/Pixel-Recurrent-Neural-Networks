@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch import nn
 from torch.utils.data import DataLoader
-import NetworkArchitecture as na
+import LegacyNetworkArchitecture as na
 import MNISTData as md
 from tqdm import tqdm
 import math

@@ -5,7 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.xpu import device
 
-import NetworkArchitecture as na
+import LegacyNetworkArchitecture as na
 import MNISTData as md
 import MNISTGen as mg
 from tqdm import tqdm
