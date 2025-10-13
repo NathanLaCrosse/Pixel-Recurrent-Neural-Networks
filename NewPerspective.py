@@ -25,7 +25,7 @@ class MNISTImages(Dataset):
 
 
 class RowRNN(nn.Module):
-    def __init__(self, embed_size=64, hidden_size=32, num_layers=3):
+    def __init__(self, embed_size=64, hidden_size=32, num_layers=3, device=torch.device('cpu')):
         super(RowRNN, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
@@ -34,6 +34,7 @@ class RowRNN(nn.Module):
         self.gru = nn.GRU(input_size=embed_size+1, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
         self.hidden_to_embed = nn.Linear(self.hidden_size, self.embed_size+1)
         self.to_out = nn.Linear(hidden_size, 258)
+        self.device = device
 
     def forward(self, x):
         batch_size, channels, rows, cols = x.size()
@@ -41,14 +42,14 @@ class RowRNN(nn.Module):
         # Add row signature to the row
         x = x.view(batch_size, rows, cols)
         x = self.embedding(x) # Now size is batch_size x rows x cols x embed_size
-        row_data = torch.arange(0, rows) / rows * 2 - 1
+        row_data = torch.arange(0, rows, device=self.device) / rows * 2 - 1
         row_data = row_data.repeat(batch_size, 1, cols, 1).permute(0, 3, 2, 1)
         x = torch.cat((x, row_data), dim=3)
         # x = x.view(batch_size*rows, cols, self.embed_size+1)
 
         # Current x size: (batch_size x rows x cols x embed_size+1)
-        outputs = torch.zeros((batch_size, rows, cols, self.hidden_size))
-        prev_hiddens = torch.zeros((batch_size, cols, self.hidden_size))
+        outputs = torch.zeros((batch_size, rows, cols, self.hidden_size), device=self.device)
+        prev_hiddens = torch.zeros((batch_size, cols, self.hidden_size), device=self.device)
 
         # For each row, calculate hiddens then add those hiddens to the next row
         for row in range(rows):
@@ -102,79 +103,119 @@ class RowRNN(nn.Module):
     #
     #     return dest
 
+def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, save_file="InfillRNN.pt", infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, max_infill_pixels=28*28*0.2):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net = RowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, device=device)
+    loss_fn = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+    net = net.to(device=device)
 
+    for epoch in range(epochs):
+        dat_loader = DataLoader(dat, batch_size=batch_size, shuffle=True)
+        progress_bar = tqdm.tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
+        running_loss = 0.0
 
-dat = MNISTImages()
+        for _, batch in enumerate(progress_bar):
+            ims = batch
 
-epochs = 5
-batch_size = 128
+            # Obstruct random pixels from the image
+            remaining_infill = infill_pixel_count
+            obstructed = torch.clone(ims)
+            while remaining_infill > 0:
+                block_size = np.random.randint(1,current_grid_max+1)
+                
+                rand_row = np.random.randint(0,28)
+                rand_col = np.random.randint(0,28)
 
-infill_pixel_count = 3
-infill_increment = 2
-max_infill_pixels = 28 * 28 / 10
+                obstructed[:, :, rand_row:rand_row+block_size, rand_col+1:rand_col+1+block_size] = 257
+                remaining_infill -= block_size**2
+
+            # for it in range(infill_pixel_count):
+            #     rand_row = np.random.randint(0,28)
+            #     rand_col = np.random.randint(0,28)
+
+            #     obstructed[:, :, rand_row:rand_row+2, rand_col+1:rand_col+3] = 257
+            obstructed = obstructed.to(device)
+
+            optimizer.zero_grad()
+            logits = net(obstructed) # Result: batch_size, 1, 28, 29, 258
+
+            # Clip out start-of-sequence blip
+            logits = logits[:,:,:,1:,:]
+            ims = ims[:,:,:,1:]
+
+            loss = loss_fn(logits.reshape(-1, 258), ims.reshape(-1).to(device))
+            loss.backward()
+            nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
+            optimizer.step()
+
+            running_loss += loss.item()
+            progress_bar.set_postfix({"Loss:": loss.item()})
+
+        infill_pixel_count += infill_increment
+        infill_pixel_count = min(infill_pixel_count, max_infill_pixels)
+
+        if (epoch + 1) % 10 == 0:
+            current_grid_max = min(current_grid_max + 1, infill_grid_max)
+
+        torch.save(net.state_dict(), save_file)
+    
+    return running_loss
 
 # ---------- Training Code ----------
-net = RowRNN()
-loss_fn = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
+# dat = MNISTImages()
 
-for epoch in range(epochs):
-    dat_loader = DataLoader(dat, batch_size=batch_size, shuffle=True)
-    progress_bar = tqdm.tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
-    running_loss = 0.0
+# epochs = 100
+# batch_size = 512
 
-    for _, batch in enumerate(progress_bar):
-        ims = batch
+# infill_pixel_count = 3
+# infill_increment = 3
+# infill_grid_max = 4
+# current_grid_max = 1
+# max_infill_pixels = 28 * 28 * 0.2
 
-        # Obstruct random pixels from the image
-        obstructed = ims
-        for it in range(infill_pixel_count):
-            rand_row = np.random.randint(0,28)
-            rand_col = np.random.randint(0,28)
+# final_loss = []
 
-            obstructed[:, :, rand_row, rand_col+1] = 257
+# final_loss.append(train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=3, save_file="BasicInfill"))
+# final_loss.append(train_infill_model(epochs, batch_size,embed_size=32, hidden_size=32, numlayers=3, save_file="SmallerEmbedInfill"))
+# final_loss.append(train_infill_model(epochs, batch_size,embed_size=64, hidden_size=64, numlayers=5, save_file="LargerInfill"))
+# final_loss.append(train_infill_model(epochs, batch_size//2,embed_size=64, hidden_size=128, numlayers=10, save_file="DeepInfill"))
 
-        optimizer.zero_grad()
-        logits = net(obstructed) # Result: batch_size, 1, 28, 29, 258
-
-        # Clip out start-of-sequence blip
-        logits = logits[:,:,:,1:,:]
-        ims = ims[:,:,:,1:]
-
-        loss = loss_fn(logits.reshape(-1, 258), ims.reshape(-1))
-        loss.backward()
-        nn.utils.clip_grad_norm_(net.parameters(), max_norm=1.0)  # Gradient clipping
-        optimizer.step()
-
-        running_loss += loss.item()
-        progress_bar.set_postfix({"Loss:": loss.item()})
-
-    infill_pixel_count += infill_increment
-    infill_pixel_count = min(infill_pixel_count, max_infill_pixels)
-
-    torch.save(net.state_dict(), "RowRNN.pt")
+# for i in range(len(final_loss)):
+#     print(f"Loss ({i+1}): {final_loss[i]}")
 
 # ---------- Testing Code ----------
-# net = RowRNN()
-# state_dict = torch.load("RowRNN.pt")
-# net.load_state_dict(state_dict)
-# net.eval()
+net = RowRNN(embed_size=64, hidden_size=64, num_layers=5)
+# net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
+state_dict = torch.load("LargerInfill.pt", map_location=torch.device('cpu'))
+net.load_state_dict(state_dict)
+net.eval()
+
+infill_pixel_count = 28*28//2
 
 # Classic reconstruction. (Sanity Check)
-# dat = MNISTImages(filepath="Datasets/mnist_test.csv")
-# with torch.no_grad():
-#     for im in dat:
-#         logits = net(im.view(1, 1, 28, 29))
-#         pred = torch.argmax(logits, dim=4)
-#
-#         pred = pred[0, 0, :, 1:]
-#         im = im[0, :, 1:]
-#
-#         fig, ax = plt.subplots(1, 2)
-#         ax[0].imshow(im)
-#         ax[1].imshow(pred)
-#
-#         plt.show()
+dat = MNISTImages(filepath="Datasets/mnist_test.csv")
+with torch.no_grad():
+    for im in dat:
+        obstructed = im.view(1, 1, 28, 29)
+        # for it in range(infill_pixel_count):
+        #     rand_row = np.random.randint(0,28)
+        #     rand_col = np.random.randint(0,28)
+
+        #     obstructed[:, :, rand_row, rand_col+1] = 257
+        obstructed[:,:,15:25,15:25] = 257
+
+        logits = net(obstructed)
+        pred = torch.argmax(logits, dim=4)
+
+        pred = pred[0, 0, :, 1:]
+        im = im[0, :, 1:]
+
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(im)
+        ax[1].imshow(pred)
+
+        plt.show()
 
 # Generation
 # while True:
