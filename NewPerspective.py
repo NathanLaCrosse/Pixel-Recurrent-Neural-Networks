@@ -103,7 +103,11 @@ class RowRNN(nn.Module):
     #
     #     return dest
 
-def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, save_file="InfillRNN.pt", infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, max_infill_pixels=28*28*0.2):
+def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, save_file="InfillRNN.pt",
+                       infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, size = 36):
+
+    dat = md.PixelDataset(samples = 100)
+    max_infill_pixels = 0.2 * size**2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = RowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, device=device)
     loss_fn = nn.CrossEntropyLoss()
@@ -124,21 +128,21 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, s
             while remaining_infill > 0:
                 block_size = np.random.randint(1,current_grid_max+1)
                 
-                rand_row = np.random.randint(0,28)
-                rand_col = np.random.randint(0,28)
+                rand_row = np.random.randint(0,size)
+                rand_col = np.random.randint(0,size)
 
                 obstructed[:, :, rand_row:rand_row+block_size, rand_col+1:rand_col+1+block_size] = 257
                 remaining_infill -= block_size**2
 
             # for it in range(infill_pixel_count):
-            #     rand_row = np.random.randint(0,28)
-            #     rand_col = np.random.randint(0,28)
+            #     rand_row = np.random.randint(0,size)
+            #     rand_col = np.random.randint(0,size)
 
             #     obstructed[:, :, rand_row:rand_row+2, rand_col+1:rand_col+3] = 257
             obstructed = obstructed.to(device)
 
             optimizer.zero_grad()
-            logits = net(obstructed) # Result: batch_size, 1, 28, 29, 258
+            logits = net(obstructed) # Result: batch_size, 1, size, size + 1, 258
 
             # Clip out start-of-sequence blip
             logits = logits[:,:,:,1:,:]
@@ -163,10 +167,8 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, s
     return running_loss
 
 # ---------- Training Code ----------
-# dat = MNISTImages()
-
-# epochs = 100
-# batch_size = 512
+epochs = 10
+batch_size = 512
 
 # infill_pixel_count = 3
 # infill_increment = 3
@@ -174,48 +176,49 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, s
 # current_grid_max = 1
 # max_infill_pixels = 28 * 28 * 0.2
 
-# final_loss = []
+final_loss = []
 
-# final_loss.append(train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=3, save_file="BasicInfill"))
-# final_loss.append(train_infill_model(epochs, batch_size,embed_size=32, hidden_size=32, numlayers=3, save_file="SmallerEmbedInfill"))
-# final_loss.append(train_infill_model(epochs, batch_size,embed_size=64, hidden_size=64, numlayers=5, save_file="LargerInfill"))
-# final_loss.append(train_infill_model(epochs, batch_size//2,embed_size=64, hidden_size=128, numlayers=10, save_file="DeepInfill"))
+final_loss.append(train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=3, save_file="Models/TEST INFILL/TESTBasicInfill"))
+final_loss.append(train_infill_model(epochs, batch_size,embed_size=32, hidden_size=32, numlayers=3, save_file="Models/TEST INFILL/TESTSmallerEmbedInfill"))
+final_loss.append(train_infill_model(epochs, batch_size,embed_size=64, hidden_size=64, numlayers=5, save_file="Models/TEST INFILL/TESTLargerInfill"))
+final_loss.append(train_infill_model(epochs, batch_size//2,embed_size=64, hidden_size=128, numlayers=10, save_file="Models/TEST INFILL/TESTDeepInfill"))
 
-# for i in range(len(final_loss)):
-#     print(f"Loss ({i+1}): {final_loss[i]}")
+for i in range(len(final_loss)):
+    print(f"Loss ({i+1}): {final_loss[i]}")
 
 # ---------- Testing Code ----------
-net = RowRNN(embed_size=64, hidden_size=64, num_layers=5)
-# net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
-state_dict = torch.load("Models/LargerInfill.pt", map_location=torch.device('cpu'))
-net.load_state_dict(state_dict)
-net.eval()
-
-infill_pixel_count = 28*28//2
-
-# Classic reconstruction. (Sanity Check)
-dat = MNISTImages(filepath="Datasets/mnist_test.csv")
-with torch.no_grad():
-    for im in dat:
-        obstructed = im.view(1, 1, 28, 29)
-        # for it in range(infill_pixel_count):
-        #     rand_row = np.random.randint(0,28)
-        #     rand_col = np.random.randint(0,28)
-
-        #     obstructed[:, :, rand_row, rand_col+1] = 257
-        obstructed[:,:,15:25,15:25] = 257
-
-        logits = net(obstructed)
-        pred = torch.argmax(logits, dim=4)
-
-        pred = pred[0, 0, :, 1:]
-        im = im[0, :, 1:]
-
-        fig, ax = plt.subplots(1, 2)
-        ax[0].imshow(im)
-        ax[1].imshow(pred)
-
-        plt.show()
+# net = RowRNN(embed_size=64, hidden_size=64, num_layers=5)
+# # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
+# state_dict = torch.load("Models/TEST INFILL/TESTLargerInfill", map_location=torch.device('cpu'))
+# net.load_state_dict(state_dict)
+# net.eval()
+#
+# infill_pixel_count = 36*36//2
+#
+# # Classic reconstruction. (Sanity Check)
+# # dat = MNISTImages(filepath="Datasets/mnist_test.csv")
+# dat = md.PixelDataset(samples = 100)
+# with torch.no_grad():
+#     for im in dat:
+#         obstructed = im.view(1, 1, 36, 37)
+#         # for it in range(infill_pixel_count):
+#         #     rand_row = np.random.randint(0,28)
+#         #     rand_col = np.random.randint(0,28)
+#
+#         #     obstructed[:, :, rand_row, rand_col+1] = 257
+#         obstructed[:,:,15:25,15:25] = 257
+#
+#         logits = net(obstructed)
+#         pred = torch.argmax(logits, dim=4)
+#
+#         pred = pred[0, 0, :, 1:]
+#         im = im[0, :, 1:]
+#
+#         fig, ax = plt.subplots(1, 2)
+#         ax[0].imshow(im, cmap = 'gray')
+#         ax[1].imshow(pred, cmap = 'gray')
+#
+#         plt.show()
 
 # Generation
 # while True:
