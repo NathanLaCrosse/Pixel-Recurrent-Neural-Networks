@@ -49,7 +49,7 @@ for epoch in range(epochs):
         progress_bar.set_postfix({"Loss:" : loss.item()})
 
     net.forcing = max(min_forcing, net.forcing - forcing_reduction_rate)
-    torch.save(net.state_dict(), "GenPixelClf.pt")
+    torch.save(net.state_dict(), "Models/GenPixelClf.pt")
 
 #     if (epoch+1) % 20 == 0:
 #         torch.save(net.state_dict, f"{(epoch+1)//20}GenPixelClf.pt")

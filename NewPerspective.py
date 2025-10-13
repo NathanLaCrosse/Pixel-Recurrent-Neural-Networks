@@ -187,7 +187,7 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, s
 # ---------- Testing Code ----------
 net = RowRNN(embed_size=64, hidden_size=64, num_layers=5)
 # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
-state_dict = torch.load("LargerInfill.pt", map_location=torch.device('cpu'))
+state_dict = torch.load("Models/LargerInfill.pt", map_location=torch.device('cpu'))
 net.load_state_dict(state_dict)
 net.eval()
 
