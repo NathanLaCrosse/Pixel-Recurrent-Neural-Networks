@@ -43,13 +43,24 @@ def to_patches(image, prc_len, one_hot):
         return torch.tensor((patched_image / 255) * 2 - 1, dtype=torch.float32)
 
 
+        # im = torch.tensor(self.raw_images[item], dtype=torch.long)
+        # start_of_col = torch.ones((28, 1), dtype=torch.long) * 256
+        # im = torch.cat((start_of_col, im), dim=1)
+        # return im.view(1, 28, 29)
+
 def process_image(path, size, color):
     if color:
-        image = cv2.imread(path)[100:400, 100:400,::-1]
-        return cv2.resize(image, (size, size))
+        image = cv2.imread(path)[100:400, 100:400, ::-1]
+        image = torch.tensor(cv2.resize(image, (size, size)), dtype=torch.long)
+        start_of_col = torch.ones((size, 1, 3), dtype=torch.long) * 256
+        image = torch.cat((start_of_col, image), dim=1)
+        return image.permute(2, 0, 1)
     else:
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)[100:400, 100:400]
-        return cv2.resize(image, (size, size))
+        image =  torch.tensor(cv2.resize(image, (size, size)), dtype=torch.long)
+        start_of_col = torch.ones((size, 1), dtype=torch.long) * 256
+        image = torch.cat((start_of_col, image), dim=1)
+        return image.view(1, size, size + 1)
 
 
 def generate_directory_list(filepath, samples):
