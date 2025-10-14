@@ -28,7 +28,7 @@ class MNISTImages(Dataset):
 def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, color=False, save_file="InfillRNN.pt",
                        infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, epochs_per_grid_increment=10, size = 36):
 
-    dat = md.PixelDataset(color=color)
+    dat = md.PixelDataset(color=color, filepath="Datasets/Cartoons/Train")
     max_infill_pixels = 0.2 * size**2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net = RowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, channels=3 if color else 1, device=device)
@@ -84,42 +84,44 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, c
     return running_loss
 
 # ---------- Training Code ----------
-epochs = 10
+epochs = 100
 batch_size = 64
 im_rows = 36
 
-infill_pixel_count = 3
-infill_increment = 3
-infill_grid_max = 4
-epochs_per_grid_increment = 10
+infill_pixel_count = 10
+infill_increment = 15
+infill_grid_max = 5
+epochs_per_grid_increment = 3
 current_grid_max = 1
-max_infill_pixels = im_rows * im_rows * 0.2
+max_infill_pixels = im_rows * im_rows * 0.5
 
-# train_infill_model(epochs, batch_size, embed_size=64, hidden_size=64, numlayers=5, color=True, save_file="Models/ChannelInfill.pt",
+# train_infill_model(epochs, batch_size, embed_size=64, hidden_size=96, numlayers=5, color=True, save_file="Models/ChannelInfill.pt",
 #                    infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
 #                    current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, size=im_rows)
 
 # ---------- Testing Code ----------
-net = RowRNN(embed_size=64, hidden_size=64, num_layers=5, channels=3)
+net = RowRNN(embed_size=64, hidden_size=96, num_layers=5, channels=3)
 # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
-state_dict = torch.load("Models/ChannelInfill.pt", map_location=torch.device('cpu'))
+state_dict = torch.load("Models/FaceInfill1.pt", map_location=torch.device('cpu'))
 net.load_state_dict(state_dict)
 net.eval()
 
 grid_size = 36
-infill_pixel_count = 20
+infill_pixel_count = 10
 
 # Classic reconstruction. (Sanity Check)
 # dat = MNISTImages(filepath="Datasets/mnist_test.csv")
-dat = md.PixelDataset(samples = 100, color=True)
+dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
 with torch.no_grad():
     for im in dat:
         obstructed = im.view(1, 3, grid_size, grid_size+1)
-        for _ in range(infill_pixel_count):
-            rand_row = np.random.randint(0,grid_size)
-            rand_col = np.random.randint(0,grid_size)
+        # for _ in range(infill_pixel_count):
+        #     rand_row = np.random.randint(0,grid_size)
+        #     rand_col = np.random.randint(0,grid_size)
 
-            obstructed[:, :, rand_row, rand_col+1] = 257
+        #     obstructed[:, :, rand_row:rand_row+4, rand_col+1:rand_col+5] = 257
+
+        obstructed[:, :, 18:, 3:] = 257
 
         # obstructed[:,:,15:25,15:25] = 257
 
