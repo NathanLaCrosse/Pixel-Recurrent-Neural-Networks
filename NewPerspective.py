@@ -9,7 +9,7 @@ import MNISTData as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
-from NetworkArchitecture import RowRNN
+from NetworkArchitecture import RowRNN, FastRowRNN
 
 class MNISTImages(Dataset):
     def __init__(self,filepath="Datasets/mnist_train.csv", samples=60000):
@@ -85,7 +85,7 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, c
 
 # ---------- Training Code ----------
 epochs = 10
-batch_size = 1
+batch_size = 64
 im_rows = 36
 
 infill_pixel_count = 3
@@ -95,36 +95,45 @@ epochs_per_grid_increment = 10
 current_grid_max = 1
 max_infill_pixels = im_rows * im_rows * 0.2
 
-train_infill_model(epochs, batch_size, embed_size=64, hidden_size=64, numlayers=3, color=True, save_file="ChannelInfill.pt",
-                   infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
-                   current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, size=im_rows)
+# train_infill_model(epochs, batch_size, embed_size=64, hidden_size=64, numlayers=5, color=True, save_file="Models/ChannelInfill.pt",
+#                    infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
+#                    current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, size=im_rows)
 
 # ---------- Testing Code ----------
-# net = RowRNN(embed_size=64, hidden_size=64, num_layers=5)
-# # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
-# state_dict = torch.load("Models/LargerInfill.pt", map_location=torch.device('cpu'))
-# net.load_state_dict(state_dict)
-# net.eval()
-#
-# grid_size = 28
-# infill_pixel_count = grid_size*grid_size//2
-#
-# # Classic reconstruction. (Sanity Check)
+net = RowRNN(embed_size=64, hidden_size=64, num_layers=5, channels=3)
+# net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
+state_dict = torch.load("Models/ChannelInfill.pt", map_location=torch.device('cpu'))
+net.load_state_dict(state_dict)
+net.eval()
+
+grid_size = 36
+infill_pixel_count = 20
+
+# Classic reconstruction. (Sanity Check)
 # dat = MNISTImages(filepath="Datasets/mnist_test.csv")
-# # dat = md.PixelDataset(samples = 100)
-# with torch.no_grad():
-#     for im in dat:
-#         obstructed = im.view(1, 1, grid_size, grid_size+1)
-#         obstructed[:,:,15:25,15:25] = 257
-#
-#         logits = net(obstructed)
-#         pred = torch.argmax(logits, dim=4)
-#
-#         pred = pred[0, 0, :, 1:]
-#         im = im[0, :, 1:]
-#
-#         fig, ax = plt.subplots(1, 2)
-#         ax[0].imshow(im, cmap = 'gray')
-#         ax[1].imshow(pred, cmap = 'gray')
-#
-#         plt.show()
+dat = md.PixelDataset(samples = 100, color=True)
+with torch.no_grad():
+    for im in dat:
+        obstructed = im.view(1, 3, grid_size, grid_size+1)
+        for _ in range(infill_pixel_count):
+            rand_row = np.random.randint(0,grid_size)
+            rand_col = np.random.randint(0,grid_size)
+
+            obstructed[:, :, rand_row, rand_col+1] = 257
+
+        # obstructed[:,:,15:25,15:25] = 257
+
+        logits = net(obstructed)
+        pred = torch.argmax(logits, dim=4)
+
+        pred = pred[0, :, :, 1:]
+        im = im.view(1, 3, grid_size, grid_size+1)[0, :, :, 1:]
+
+        pred = pred.permute(1, 2, 0)
+        im = im.permute(1, 2, 0)
+
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(im)
+        ax[1].imshow(pred)
+
+        plt.show()

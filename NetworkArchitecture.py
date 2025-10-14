@@ -83,10 +83,54 @@ class RowRNN(nn.Module):
         return pred
 
 
-if __name__ == "__main__":
-    net = RowRNN(channels=3)
 
-    sample_input = torch.randint(0, 258, (5, 1, 14, 14))
+class FastRowRNN(nn.Module):
+    def __init__(self, embed_size=64, hidden_size=32, num_layers=3, channels=1, device=torch.device('cpu')):
+        super(FastRowRNN, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.channels = channels
+        self.device = device
+
+        self.embedding = nn.Embedding(258, embed_size)
+        self.recurrent = nn.GRU(input_size=embed_size+1, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
+        self.hidden_to_embed = nn.Linear(hidden_size, embed_size+1)
+        self.to_out = nn.Linear(hidden_size, 258)
+
+    def forward(self, x):
+        batch_size, channels, rows, cols = x.size()
+
+        # Unravel channels across columns
+        x = x.view(batch_size, rows, cols * channels)
+        
+        # Embed and add row data across columns
+        x = self.embedding(x) 
+        row_data = torch.arange(0, rows, device=self.device) / rows * 2 - 1
+        row_data = row_data.repeat(batch_size, 1, cols * channels, 1).permute(0, 3, 2, 1)
+        x = torch.cat((x, row_data), dim=3)
+
+        # Current x size: (batch_size x rows x cols x embed_size+1)
+        outputs = torch.zeros((batch_size, rows, cols * channels, self.hidden_size), device=self.device)
+        prev_hiddens = torch.zeros((batch_size, cols * channels, self.hidden_size), device=self.device)
+
+        # For each row, calculate hiddens then add those hiddens to the next row
+        for row in range(rows):
+            cur_row = x[:, row, :, :]
+            comb = cur_row + self.hidden_to_embed(prev_hiddens)
+            gru_output, _ = self.recurrent(comb)
+            prev_hiddens = gru_output
+            outputs[:, row, :, :] = gru_output
+
+        # Apply conversion to pixel intensities
+        pred = self.to_out(outputs)
+        return pred.view(batch_size, channels, rows, cols, 258)
+
+
+
+if __name__ == "__main__":
+    net = FastRowRNN(channels=3)
+
+    sample_input = torch.randint(0, 258, (5, 3, 14, 14))
 
     logits = net(sample_input)
 
