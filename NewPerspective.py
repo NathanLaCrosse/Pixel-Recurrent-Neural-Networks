@@ -26,44 +26,50 @@ class MNISTImages(Dataset):
         return im.view(1, 28, 29)
 
 
-def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, color=False, save_file="InfillRNN.pt",
-                       infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, max_infill_pixels=100, epochs_per_grid_increment=10, size = 36):
 
-    dat = md.PixelDataset(color=color, filepath="Datasets/Cartoons/Train")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net = AltRowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, channels=3 if color else 1, device=device)
+
+# ---------- Training Code ----------
+def train_model(training_args):
+    net = training_args["net"]
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     net = net.to(device=device)
 
-    for epoch in range(epochs):
-        dat_loader = DataLoader(dat, batch_size=batch_size, shuffle=True)
-        progress_bar = tqdm.tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{epochs}")
+    infill_pixel_count = training_args["starting_infill_pixels"]
+    current_grid_max = training_args["start_infill_grid"]
+
+    for epoch in range(training_args["epochs"]):
+        dat_loader = DataLoader(training_args["dat"], batch_size=training_args["batch_size"], shuffle=True)
+        progress_bar = tqdm.tqdm(dat_loader, desc=f"Epoch {epoch + 1}/{training_args["epochs"]}")
         running_loss = 0.0
 
         for _, batch in enumerate(progress_bar):
             ims = batch
 
-            # Obstruct random pixels from the image
+            # Obstruct random pixel blocks from the image
             remaining_infill = infill_pixel_count
             obstructed = torch.clone(ims)
             while remaining_infill > 0:
-                block_size = np.random.randint(1,current_grid_max+1)
-                
-                rand_row = np.random.randint(0,size)
-                rand_col = np.random.randint(0,size)
+                block_size = np.random.randint(1, current_grid_max + 1)
 
-                obstructed[:, :, rand_row:rand_row+block_size, rand_col+1:rand_col+1+block_size] = 257
-                remaining_infill -= block_size**2
+                rand_row = np.random.randint(0, training_args["im_rows"])
+                rand_col = np.random.randint(0, training_args["im_rows"])
+
+                mask_lvl = np.random.choice([0, 1, 2], p=training_args["infill_level_probs"])
+
+                # Apply a random mask that's conditional on the channels
+                obstructed[:, mask_lvl:, rand_row:rand_row + block_size, rand_col + 1:rand_col + 1 + block_size] = 257
+
+                remaining_infill -= block_size ** 2
 
             obstructed = obstructed.to(device)
 
             optimizer.zero_grad()
-            logits = net(obstructed) # Result: batch_size, 1, size, size + 1, 258
+            logits = net(obstructed)  # Result: batch_size, 1, size, size + 1, 258
 
             # Clip out start-of-sequence blip
-            logits = logits[:,:,:,1:,:]
-            ims = ims[:,:,:,1:]
+            logits = logits[:, :, :, 1:, :]
+            ims = ims[:, :, :, 1:]
 
             loss = loss_fn(logits.reshape(-1, 258), ims.reshape(-1).to(device))
             loss.backward()
@@ -73,48 +79,35 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, c
             running_loss += loss.item()
             progress_bar.set_postfix({"Loss:": loss.item()})
 
-        infill_pixel_count += infill_increment
-        infill_pixel_count = min(infill_pixel_count, max_infill_pixels)
+        infill_pixel_count += training_args["infill_pixel_increment"]
+        infill_pixel_count = min(infill_pixel_count, training_args["max_infill_pixels"])
 
-        if (epoch + 1) % epochs_per_grid_increment == 0:
-            current_grid_max = min(current_grid_max + 1, infill_grid_max)
+        if (epoch + 1) % training_args["epochs_per_grid_increment"] == 0:
+            current_grid_max = min(current_grid_max + 1, training_args["max_infill_grid"])
 
-        torch.save(net.state_dict(), save_file)
-    
-    return running_loss
+        torch.save(net.state_dict(), training_args["file_name"])
 
-# ---------- Training Code ----------
-epochs = 100
-batch_size = 32
-im_rows = 36
 
-infill_pixel_count = 15
-infill_increment = 15
-infill_grid_max = 6
-epochs_per_grid_increment = 3
-current_grid_max = 1
-max_infill_pixels = im_rows * im_rows * 0.7
-
-train_infill_model(epochs, batch_size, embed_size=32, hidden_size=64, numlayers=5, color=True, save_file="Models/AltInfill.pt",
-                   infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
-                   current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, max_infill_pixels=max_infill_pixels,
-                   size=im_rows)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+training_args = {
+    "epochs" : 100,
+    "batch_size" : 32,
+    "im_rows" : 36,
+    "net" : AltRowRNN(embed_size=32, hidden_size=64, num_layers=5, channels=3, device=device),
+    "dat" : md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train"),
+    "file_name" : "Models/AltInfill.pt",
+    "device" : device,
+    "starting_infill_pixels" : 10,
+    "infill_pixel_increment" : 15,
+    "start_infill_grid" : 1,
+    "max_infill_grid" : 6,
+    "epochs_per_grid_increment" : 3,
+    "max_infill_pixels" : 36 * 36 * 0.6,
+    "infill_level_probs" : [0.20, 0.35, 0.45]
+}
+train_model(training_args)
 
 # ---------- Testing Code ----------
-
-def generate_with_temperature(net, obstructed, temp, samples=1):
-    _, c, rows, cols = obstructed.size()
-    with torch.no_grad():
-        logits = net(obstructed)
-        logits = logits / temp
-
-        pred = torch.softmax(logits, dim=4)
-        sampled = torch.multinomial(pred.view(-1, 258), num_samples=1)
-
-        sampled = sampled.view(c, rows, cols)
-        sampled = sampled.permute(1, 2, 0)
-
-        return sampled
 
 # net = RowRNN(embed_size=64, hidden_size=96, num_layers=5, channels=3)
 # # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
