@@ -9,7 +9,7 @@ import MNISTData as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
-from NetworkArchitecture import RowRNN, OmniRowRNN
+from NetworkArchitecture import RowRNN, OmniRowRNN, AltRowRNN
 
 
 class MNISTImages(Dataset):
@@ -27,12 +27,11 @@ class MNISTImages(Dataset):
 
 
 def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, color=False, save_file="InfillRNN.pt",
-                       infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, epochs_per_grid_increment=10, size = 36):
+                       infill_pixel_count=3, infill_increment=3, infill_grid_max=4, current_grid_max=1, max_infill_pixels=100, epochs_per_grid_increment=10, size = 36):
 
     dat = md.PixelDataset(color=color, filepath="Datasets/Cartoons/Train")
-    max_infill_pixels = 0.2 * size**2
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net = OmniRowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, channels=3 if color else 1, device=device)
+    net = AltRowRNN(embed_size=embed_size, hidden_size=hidden_size, num_layers=numlayers, channels=3 if color else 1, device=device)
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001)
     net = net.to(device=device)
@@ -86,7 +85,7 @@ def train_infill_model(epochs, batch_size, embed_size, hidden_size, numlayers, c
 
 # ---------- Training Code ----------
 epochs = 100
-batch_size = 1
+batch_size = 32
 im_rows = 36
 
 infill_pixel_count = 15
@@ -96,14 +95,27 @@ epochs_per_grid_increment = 3
 current_grid_max = 1
 max_infill_pixels = im_rows * im_rows * 0.7
 
-# train_infill_model(epochs, batch_size, embed_size=64, hidden_size=96, numlayers=5, color=True, save_file="Models/ChannelInfill.pt",
-#                    infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
-#                    current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, size=im_rows)
-train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=5, color=True, save_file="Models/OmniInfill.pt",
+train_infill_model(epochs, batch_size, embed_size=32, hidden_size=64, numlayers=5, color=True, save_file="Models/AltInfill.pt",
                    infill_pixel_count=infill_pixel_count, infill_increment=infill_increment, infill_grid_max=infill_grid_max,
-                   current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, size=im_rows)
+                   current_grid_max=current_grid_max, epochs_per_grid_increment=epochs_per_grid_increment, max_infill_pixels=max_infill_pixels,
+                   size=im_rows)
 
 # ---------- Testing Code ----------
+
+def generate_with_temperature(net, obstructed, temp, samples=1):
+    _, c, rows, cols = obstructed.size()
+    with torch.no_grad():
+        logits = net(obstructed)
+        logits = logits / temp
+
+        pred = torch.softmax(logits, dim=4)
+        sampled = torch.multinomial(pred.view(-1, 258), num_samples=1)
+
+        sampled = sampled.view(c, rows, cols)
+        sampled = sampled.permute(1, 2, 0)
+
+        return sampled
+
 # net = RowRNN(embed_size=64, hidden_size=96, num_layers=5, channels=3)
 # # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
 # state_dict = torch.load("Models/FaceInfill1.pt", map_location=torch.device('cpu'))
@@ -112,9 +124,9 @@ train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=
 #
 # grid_size = 36
 # infill_pixel_count = 10
-
-# Classic reconstruction. (Sanity Check)
-# dat = MNISTImages(filepath="Datasets/mnist_test.csv")
+#
+# # Classic reconstruction. (Sanity Check)
+# # dat = MNISTImages(filepath="Datasets/mnist_test.csv")
 # dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
 # with torch.no_grad():
 #     for im in dat:
@@ -125,21 +137,29 @@ train_infill_model(epochs, batch_size, embed_size=64, hidden_size=32, numlayers=
 #
 #         #     obstructed[:, :, rand_row:rand_row+4, rand_col+1:rand_col+5] = 257
 #
-#         obstructed[:, :, 18:, 3:] = 257
+#         obstructed[:, :, 3:, 18:] = 257
 #
 #         # obstructed[:,:,15:25,15:25] = 257
 #
+#         # Convert logits to an image
 #         logits = net(obstructed)
 #         pred = torch.argmax(logits, dim=4)
-#
 #         pred = pred[0, :, :, 1:]
-#         im = im.view(1, 3, grid_size, grid_size+1)[0, :, :, 1:]
-#
+#         im = im.view(1, 3, grid_size, grid_size + 1)[0, :, :, 1:]
 #         pred = pred.permute(1, 2, 0)
-#         im = im.permute(1, 2, 0)
+#         im = im.permute(1, 2, 0).clamp(0, 255)
 #
-#         fig, ax = plt.subplots(1, 2)
-#         ax[0].imshow(im)
-#         ax[1].imshow(pred)
+#         fig, ax = plt.subplots(2, 4)
+#         ax[0, 0].imshow(im)
+#         ax[0, 1].imshow(pred)
+#
+#         # Generate some samples to look at
+#         for s in range(4):
+#             samp = generate_with_temperature(net, obstructed, 2)
+#             ax[1, s].imshow(samp[:, 1:, :])
+#
+#         # for s in range(4):
+#         #     samp = samps[s][:, 1:, :]
+#         #     ax[1, s].imshow(samp)
 #
 #         plt.show()

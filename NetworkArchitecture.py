@@ -84,6 +84,79 @@ class RowRNN(nn.Module):
 
 
 
+class AltRowRNN(nn.Module):
+    def __init__(self, embed_size=32, hidden_size=32, num_layers=3, channels=3, device=torch.device('cpu')):
+        super(AltRowRNN, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.channels = channels
+
+        # Pixel Intensity -> Embedding Vector
+        self.embeddings = nn.ModuleList([nn.Embedding(258, embed_size) for i in range(channels)])
+        # Singular GRU that operates over the image space
+        self.gru = nn.GRU(input_size=embed_size*3+1, hidden_size=hidden_size, num_layers=num_layers, batch_first=True)
+        # Combine above data down to a single embed+1 vector -> combines both previous x and hidden states
+        self.transfer_data = nn.Linear(self.embed_size*3 + 1 + self.hidden_size, self.embed_size*3+1)
+        self.to_red = nn.Linear(self.hidden_size, 258)
+        self.to_green = nn.Linear(self.hidden_size + self.embed_size, 258)
+        self.to_blue = nn.Linear(self.hidden_size + self.embed_size * 2, 258)
+        self.device = device
+
+    def forward(self, x, target=None):
+        batch_size, channels, rows, cols = x.size()
+
+        # Embed the image
+        build = [None for i in range(channels)]
+        for c in range(channels):
+            embedded_slice = self.embeddings[c](x[:, c, :, :])
+            build[c] = embedded_slice
+        embedded_x = torch.cat(build, dim=3)
+
+        # Add row information
+        row_info = torch.arange(0, rows, device=self.device).repeat(batch_size, cols, 1).permute(0, 2, 1)
+        row_info = row_info.view(batch_size, rows, cols, 1)
+        embedded_x = torch.cat([embedded_x, row_info], dim=3)
+
+        # Embedded_x dimensions: (batch_size, rows, cols, self.embed_size*3+1)
+
+        # Initialize previous data
+        output = [None for _ in range(rows)]
+        prev_hiddens = torch.zeros((batch_size, cols, self.hidden_size), device=self.device)
+        prev_row = torch.zeros((batch_size, cols, self.embed_size*3+1), device=self.device)
+
+        for row in range(rows):
+            cur_row = embedded_x[:, row, :, :]
+
+            temp = self.transfer_data(torch.cat([prev_row, prev_hiddens], dim=2))
+            cur_row = cur_row + temp
+
+            gru_output, _ = self.gru(cur_row)
+
+            output[row] = gru_output
+            prev_row = cur_row
+            prev_hiddens = gru_output
+
+        # Stack output
+        output = torch.stack(output, dim=1) # Dimension: (stack_size, rows, cols, hidden_size)
+
+        # Next up - we want to predict channels BASED OFF results of previous channels
+        red_logits = self.to_red(output)
+        if target is not None:
+            red_embed = self.embeddings[0](target[:, 0])  # teacher forcing
+        else:
+            red_pred = torch.argmax(red_logits, dim=3)
+            red_embed = self.embeddings[0](red_pred)
+
+        green_logits = self.to_green(torch.cat([output, red_embed], dim=3))
+        if target is not None:
+            green_embed = self.embeddings[1](target[:, 0])
+        else:
+            green_pred = torch.argmax(green_logits, dim=3)
+            green_embed = self.embeddings[1](green_pred)
+
+        blue_logits = self.to_blue(torch.cat([output, red_embed, green_embed], dim=3))
+
+        return torch.stack([red_logits, green_logits, blue_logits], dim=1)
 
 
 
@@ -195,7 +268,7 @@ class OmniRowRNN(nn.Module):
 
 
 if __name__ == "__main__":
-    net = OmniRowRNN(channels=3, hidden_size=32)
+    net = AltRowRNN(channels=3, hidden_size=32)
 
     sample_input = torch.randint(0, 258, (5, 3, 14, 14))
 
