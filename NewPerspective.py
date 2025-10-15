@@ -9,7 +9,7 @@ import MNISTData as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
-from NetworkArchitecture import RowRNN, OmniRowRNN, AltRowRNN
+from NetworkArchitecture import RowRNN, OmniRowRNN, ConditionalRowRNN
 
 
 class MNISTImages(Dataset):
@@ -65,7 +65,10 @@ def train_model(training_args):
             obstructed = obstructed.to(device)
 
             optimizer.zero_grad()
-            logits = net(obstructed, target=ims.to(device))  # Result: batch_size, 1, size, size + 1, 258
+            if isinstance(net, ConditionalRowRNN):
+                logits = net(obstructed, target=ims.to(device))  # Result: batch_size, 1, size, size + 1, 258
+            else:
+                logits = net(obstructed)
 
             # Clip out start-of-sequence blip
             logits = logits[:, :, 1:, 1:, :]
@@ -89,13 +92,11 @@ def train_model(training_args):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# device = torch.device('cpu')
-
 training_args = {
     "epochs" : 100,
-    "batch_size" : 100,
+    "batch_size" : 1,
     "im_rows" : 36,
-    "net" : AltRowRNN(embed_size=40, hidden_size=100, num_layers=5, channels=3, device=device),
+    "net" : ConditionalRowRNN(embed_size=32, hidden_size=64, num_layers=5, channels=3, device=device),
     "dat" : md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train"),
     "file_name" : "Models/NewInfill.pt",
     "device" : device,
@@ -105,7 +106,7 @@ training_args = {
     "max_infill_grid" : 6,
     "epochs_per_grid_increment" : 4,
     "max_infill_pixels" : 36 * 36 * 0.6,
-    "infill_level_probs" : [0.20, 0.35, 0.45]
+    "infill_level_probs" : [0.5, 0.25, 0.25]
 }
 train_model(training_args)
 
