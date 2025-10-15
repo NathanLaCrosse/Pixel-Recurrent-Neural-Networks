@@ -53,7 +53,9 @@ def process_image(path, size, color):
         image = cv2.imread(path)[100:400, 100:400, ::-1]
         image = torch.tensor(cv2.resize(image, (size, size)), dtype=torch.long)
         start_of_col = torch.ones((size, 1, 3), dtype=torch.long) * 256
+        start_of_row = torch.ones((1, size+1, 3), dtype=torch.long) * 256
         image = torch.cat((start_of_col, image), dim=1)
+        image = torch.cat((start_of_row, image), dim=0)
         return image.permute(2, 0, 1)
     else:
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)[100:400, 100:400]

@@ -65,11 +65,11 @@ def train_model(training_args):
             obstructed = obstructed.to(device)
 
             optimizer.zero_grad()
-            logits = net(obstructed)  # Result: batch_size, 1, size, size + 1, 258
+            logits = net(obstructed, target=ims.to(device))  # Result: batch_size, 1, size, size + 1, 258
 
             # Clip out start-of-sequence blip
-            logits = logits[:, :, :, 1:, :]
-            ims = ims[:, :, :, 1:]
+            logits = logits[:, :, 1:, 1:, :]
+            ims = ims[:, :, 1:, 1:]
 
             loss = loss_fn(logits.reshape(-1, 258), ims.reshape(-1).to(device))
             loss.backward()
@@ -89,19 +89,21 @@ def train_model(training_args):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device('cpu')
+
 training_args = {
     "epochs" : 100,
-    "batch_size" : 32,
+    "batch_size" : 100,
     "im_rows" : 36,
-    "net" : AltRowRNN(embed_size=32, hidden_size=64, num_layers=5, channels=3, device=device),
+    "net" : AltRowRNN(embed_size=40, hidden_size=100, num_layers=5, channels=3, device=device),
     "dat" : md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train"),
-    "file_name" : "Models/AltInfill.pt",
+    "file_name" : "Models/NewInfill.pt",
     "device" : device,
     "starting_infill_pixels" : 10,
-    "infill_pixel_increment" : 15,
+    "infill_pixel_increment" : 10,
     "start_infill_grid" : 1,
     "max_infill_grid" : 6,
-    "epochs_per_grid_increment" : 3,
+    "epochs_per_grid_increment" : 4,
     "max_infill_pixels" : 36 * 36 * 0.6,
     "infill_level_probs" : [0.20, 0.35, 0.45]
 }
@@ -109,31 +111,29 @@ train_model(training_args)
 
 # ---------- Testing Code ----------
 
-# net = RowRNN(embed_size=64, hidden_size=96, num_layers=5, channels=3)
-# # net = RowRNN(embed_size=64, hidden_size=128, num_layers=10)
-# state_dict = torch.load("Models/FaceInfill1.pt", map_location=torch.device('cpu'))
+# net = training_args["net"]
+# state_dict = torch.load("Models/AltInfill.pt", map_location=torch.device('cpu'))
 # net.load_state_dict(state_dict)
 # net.eval()
-#
+
 # grid_size = 36
 # infill_pixel_count = 10
-#
+
 # # Classic reconstruction. (Sanity Check)
-# # dat = MNISTImages(filepath="Datasets/mnist_test.csv")
 # dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
 # with torch.no_grad():
 #     for im in dat:
 #         obstructed = im.view(1, 3, grid_size, grid_size+1)
-#         # for _ in range(infill_pixel_count):
-#         #     rand_row = np.random.randint(0,grid_size)
-#         #     rand_col = np.random.randint(0,grid_size)
-#
-#         #     obstructed[:, :, rand_row:rand_row+4, rand_col+1:rand_col+5] = 257
-#
-#         obstructed[:, :, 3:, 18:] = 257
-#
+#         for _ in range(infill_pixel_count):
+#             rand_row = np.random.randint(0,grid_size)
+#             rand_col = np.random.randint(0,grid_size)
+
+#             obstructed[:, :, rand_row:rand_row+3, rand_col+1:rand_col+4] = 257
+
+#         # obstructed[:, :, 3:, 18:] = 257
+
 #         # obstructed[:,:,15:25,15:25] = 257
-#
+
 #         # Convert logits to an image
 #         logits = net(obstructed)
 #         pred = torch.argmax(logits, dim=4)
@@ -141,18 +141,14 @@ train_model(training_args)
 #         im = im.view(1, 3, grid_size, grid_size + 1)[0, :, :, 1:]
 #         pred = pred.permute(1, 2, 0)
 #         im = im.permute(1, 2, 0).clamp(0, 255)
-#
-#         fig, ax = plt.subplots(2, 4)
-#         ax[0, 0].imshow(im)
-#         ax[0, 1].imshow(pred)
-#
-#         # Generate some samples to look at
-#         for s in range(4):
-#             samp = generate_with_temperature(net, obstructed, 2)
-#             ax[1, s].imshow(samp[:, 1:, :])
-#
+
+#         fig, ax = plt.subplots(1, 2)
+#         ax[0].imshow(im)
+#         ax[1].imshow(pred)
+
+#         # # Generate some samples to look at
 #         # for s in range(4):
-#         #     samp = samps[s][:, 1:, :]
-#         #     ax[1, s].imshow(samp)
-#
+#         #     samp = generate_with_temperature(net, obstructed, 2)
+#         #     ax[1, s].imshow(samp[:, 1:, :])
+
 #         plt.show()
