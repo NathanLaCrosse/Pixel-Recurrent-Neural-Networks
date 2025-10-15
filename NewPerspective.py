@@ -112,23 +112,23 @@ train_model(training_args)
 # ---------- Testing Code ----------
 
 # net = training_args["net"]
-# state_dict = torch.load("Models/AltInfill.pt", map_location=torch.device('cpu'))
+# state_dict = torch.load("Models/NewInfill.pt", map_location=torch.device('cpu'))
 # net.load_state_dict(state_dict)
 # net.eval()
 
 # grid_size = 36
-# infill_pixel_count = 10
+# infill_pixel_count = 30
 
 # # Classic reconstruction. (Sanity Check)
 # dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
 # with torch.no_grad():
 #     for im in dat:
-#         obstructed = im.view(1, 3, grid_size, grid_size+1)
+#         obstructed = im.view(1, 3, grid_size+1, grid_size+1)
 #         for _ in range(infill_pixel_count):
 #             rand_row = np.random.randint(0,grid_size)
 #             rand_col = np.random.randint(0,grid_size)
 
-#             obstructed[:, :, rand_row:rand_row+3, rand_col+1:rand_col+4] = 257
+#             obstructed[:, :, rand_row+1:rand_row+2, rand_col+1:rand_col+2] = 257
 
 #         # obstructed[:, :, 3:, 18:] = 257
 
@@ -137,8 +137,8 @@ train_model(training_args)
 #         # Convert logits to an image
 #         logits = net(obstructed)
 #         pred = torch.argmax(logits, dim=4)
-#         pred = pred[0, :, :, 1:]
-#         im = im.view(1, 3, grid_size, grid_size + 1)[0, :, :, 1:]
+#         pred = pred[0, :, 1:, 1:]
+#         im = im.view(1, 3, grid_size + 1, grid_size + 1)[0, :, 1:, 1:]
 #         pred = pred.permute(1, 2, 0)
 #         im = im.permute(1, 2, 0).clamp(0, 255)
 
