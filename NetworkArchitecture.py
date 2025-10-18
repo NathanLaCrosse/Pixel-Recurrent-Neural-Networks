@@ -5,7 +5,7 @@ import pandas as pd
 import tqdm as tqdm
 from torch.nn.functional import embedding
 from torch.utils.data import Dataset, DataLoader
-import MNISTData as md
+import Data as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np

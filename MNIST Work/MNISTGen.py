@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 import LegacyNetworkArchitecture as na
-import MNISTData as md
+import Data as md
 from tqdm import tqdm
 import math
 
@@ -45,7 +45,7 @@ def generator(filepath, device=torch.device("cpu")):
     # recreate model from stored hyperparameters, and then loading weights
     config = checkpoint['config']
     model = na.TwoDimensionalGRUSeq2Seq(**config)
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
+    eval_dataset = md.PixelDataset(filepath="../Datasets/mnist_test.csv", prc_len=config['patch_rows'])
     model.load_state_dict(checkpoint['model'])
     model.forcing = 0.0 # turn off teacher forcing for evaluation
 
@@ -145,7 +145,7 @@ def test_centering(filepath="VAE.pt", device=torch.device("cpu")):
 
     config = checkpoint['config']
     model = na.TwoDimensionalGRUSeq2Seq(**config)
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
+    eval_dataset = md.PixelDataset(filepath="../Datasets/mnist_test.csv", prc_len=config['patch_rows'])
     model.load_state_dict(checkpoint['model'])
     model.forcing = 0.0
 
@@ -183,7 +183,7 @@ def interp(filepath="VAE.pt", device=torch.device("cpu")):
 
     config = checkpoint['config']
     model = na.TwoDimensionalGRUSeq2Seq(**config)
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv", prc_len=config['patch_rows'])
+    eval_dataset = md.PixelDataset(filepath="../Datasets/mnist_test.csv", prc_len=config['patch_rows'])
     model.load_state_dict(checkpoint['model'])
     model.forcing = 0.0
 

@@ -5,7 +5,7 @@ import pandas as pd
 import tqdm as tqdm
 from torch.nn.functional import embedding
 from torch.utils.data import Dataset, DataLoader
-import MNISTData as md
+import Data as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
@@ -15,7 +15,7 @@ epochs = 10
 batch_size = 64
 save = "Models/GenerativeNathan.pt"
 
-dat = md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train")
+dat = md.PixelDataset(color=True, filepath="../Datasets/Cartoons/Train")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 net = GenerativeRowRNN(embed_size=64, hidden_size=64, num_layers=4, device=device)

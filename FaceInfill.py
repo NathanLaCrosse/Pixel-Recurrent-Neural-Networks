@@ -5,7 +5,7 @@ import pandas as pd
 import tqdm as tqdm
 from torch.nn.functional import embedding
 from torch.utils.data import Dataset, DataLoader
-import MNISTData as md
+import Data as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
@@ -136,6 +136,7 @@ with torch.no_grad():
         # mask[3:, 23:] = True
         it = 0
         limit = 10000
+        cur_temp = 0.8
 
         for row in range(36):
             for col in range(36):
@@ -146,10 +147,11 @@ with torch.no_grad():
                     # logits = net(prompt)
                     # pred = torch.argmax(logits, dim=4)
 
-                    pred = net(prompt, temp=1)
+                    pred = net(prompt, temp=cur_temp)
 
                     reconstructed[:, :, row+1, col+1] = pred[:, :, row+1, col+1]
 
+                    cur_temp = max(0.1, cur_temp - 0.05)
                     it += 1
                 elif mask[row, col]:
                     reconstructed[:, :, row+1, col+1] = 257

@@ -7,18 +7,18 @@ import pandas as pd
 import tqdm as tqdm
 from torch.nn.functional import embedding
 from torch.utils.data import Dataset, DataLoader
-import MNISTData as md
+import Data as md
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
 from NetworkArchitecture import RowRNN, OmniRowRNN, GenerativeRowRNN
 
 save = "Models/Generative.pt"
-dat = md.PixelDataset(color=True, filepath="Datasets/Cartoons/Test")
+dat = md.PixelDataset(color=True, filepath="../Datasets/Cartoons/Test")
 device = torch.device("cpu")
 net = GenerativeRowRNN(embed_size=64, hidden_size=64, num_layers=1, device=device)
 
-state_dict = torch.load("Models/GenerativeAdam1.pt", map_location=device)
+state_dict = torch.load("../Models/GenerativeAdam1.pt", map_location=device)
 net.load_state_dict(state_dict)
 
 net = net.eval()

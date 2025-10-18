@@ -4,11 +4,11 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 import LegacyNetworkArchitecture as na
-import MNISTData as md
+import Data as md
 from tqdm import tqdm
 
 def manual_evaluation(filepath):
-    eval_dataset = md.PixelDataset(filepath="Datasets/mnist_test.csv")
+    eval_dataset = md.PixelDataset(filepath="../Datasets/mnist_test.csv")
     checkpoint = torch.load(f'Models/{filepath}')
 
     config = checkpoint['config']
@@ -40,7 +40,7 @@ def evaluate(train_network, dataset, filepath):
         eval_dataset = dataset
         model = train_network
     else:
-        eval_dataset = md.PixelDataset(filepath = "Datasets/mnist_test.csv")
+        eval_dataset = md.PixelDataset(filepath ="../Datasets/mnist_test.csv")
         checkpoint = torch.load(f'Models/{filepath}')
 
         config = checkpoint['config']

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torch.xpu import device
 
 import LegacyNetworkArchitecture as na
-import MNISTData as md
+import Data as md
 import MNISTGen as mg
 from tqdm import tqdm
 import math
