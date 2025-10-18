@@ -217,7 +217,7 @@ class GenerativeRowRNN(nn.Module):
         )
         # Separate GRU for each channel, conditioned on each other
         self.channel_grus = nn.ModuleList(
-            [nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True) for i in
+            [nn.GRU(input_size=embed_size+2, hidden_size=hidden_size, num_layers=num_layers, batch_first=True) for i in
              range(channels)]
         )
 
@@ -238,7 +238,7 @@ class GenerativeRowRNN(nn.Module):
 
         self.device = device
 
-    def forward(self, x, target=None):
+    def forward(self, x):
         batch_size, channels, rows, cols = x.size()
 
         logits = [None for row in range(rows-1)]
@@ -262,6 +262,10 @@ class GenerativeRowRNN(nn.Module):
                     current_x = torch.cat([left_x, above_x], dim=1)
                     current_x = self.x_comb[c](current_x)
 
+                    # Inject positional data
+                    pos_dat = torch.tensor([row, col]).repeat(repeats=batch_size).view(batch_size, 2)
+                    current_x = torch.cat([current_x, pos_dat], dim=1)
+
                     # Gather previous hidden data from above and below
                     current_h = torch.cat([prev_hidden_left, prev_hidden_row[c][col]], dim=2)
                     current_h = self.h_comb[c](current_h)
@@ -282,7 +286,7 @@ class GenerativeRowRNN(nn.Module):
 
                     # Put our previous embedding in the queue for the next color channel
                     # This makes colors conditional on each other
-                    prev_color_embed.append(current_x)
+                    prev_color_embed.append(self.embeddings[c](x[:, c, row+1, col+1]))
                     prev_hidden_left = h_final
                     current_hidden_row[c][col] = h_final
 
@@ -300,17 +304,17 @@ class GenerativeRowRNN(nn.Module):
 
         # Combine logits
 
-    def predict(self, x, mask, temp):
+    def predict(self, x, mask, temp=0.01):
         # Predict pixels of an image whenever mask is false
         # Assumes x has already been padded with start-of-sequence values
         with torch.no_grad():
             batch_size, channels, rows, cols = x.size()
-            im = torch.zeros((batch_size, channels, rows-1, cols-1))
+            im = torch.zeros((batch_size, channels, rows, cols), requires_grad=False, dtype=torch.long)
 
             # Append start-of sequence
             # im[:, :, 1:, 1:] = x
-            # im[:, :, 0, :] = 256
-            # im[:, :, :, 0] = 256
+            im[:, :, 0, :] = 256
+            im[:, :, :, 0] = 256
 
             prev_hidden_row = [[torch.zeros((batch_size, self.num_layers, self.hidden_size),
                                             device=self.device) for col in range(cols - 1)]
@@ -321,9 +325,64 @@ class GenerativeRowRNN(nn.Module):
                 prev_hidden_left = torch.zeros((batch_size, self.num_layers, self.hidden_size), device=self.device)
 
                 for col in range(cols-1):
+                    prev_color_embed = []
 
+                    for c in range(channels):
+                        # Gather available image data
+                        if not mask[:, c, row+1, col]:
+                            left_x = x[:, c, row+1, col]
+                        else:
+                            left_x = im[:, c, row+1, col]
+                        if not mask[:, c, row, col+1]:
+                            above_x = x[:, c, row, col+1]
+                        else:
+                            above_x = im[:, c, row, col+1]
+
+                        left_x = self.embeddings[c](left_x)
+                        above_x = self.embeddings[c](above_x)
+                        current_x = torch.cat([left_x, above_x], dim=1)
+                        current_x = self.x_comb[c](current_x)
+
+                        # Inject positional data
+                        pos_dat = torch.tensor([row, col]).repeat(repeats=batch_size).view(batch_size, 2)
+                        current_x = torch.cat([current_x, pos_dat], dim=1)
+
+                        # Gather previous hidden data from above and below
+                        current_h = torch.cat([prev_hidden_left, prev_hidden_row[c][col]], dim=2)
+                        current_h = self.h_comb[c](current_h)
+
+                        # Compute GRU output
+                        _, h_final = self.channel_grus[c](current_x.view(batch_size, 1, self.embed_size),
+                                                          current_h.view(self.num_layers, batch_size, self.hidden_size))
+                        h_final = h_final.permute(1, 0, 2)
+
+                        # Predict values for the current color channel - if we have to do infilling
+                        if not mask[:, c, row+1, col+1]:
+                            im[:, c, row+1, col+1] = x[:, c, row+1, col+1]
+                        else:
+                            if c == 0:
+                                colored_logits = self.to_red(h_final[:, -1, :])
+                            elif c == 1:
+                                colored_logits = self.to_green(torch.cat([h_final[:, -1, :]] + prev_color_embed, dim=1))
+                            else:
+                                colored_logits = self.to_blue(torch.cat([h_final[:, -1, :]] + prev_color_embed, dim=1))
+
+                            # Apply softmax and sample
+                            colored_logits = colored_logits / temp
+                            dist = F.softmax(colored_logits, dim=1)
+                            pred = torch.multinomial(dist, num_samples=1)
+
+                            im[:, c, row+1, col+1] = pred
+
+                        # Put our previous embedding in the queue for the next color channel
+                        # This makes colors conditional on each other
+                        prev_color_embed.append(self.embeddings[c](im[:, c, row+1, col+1]))
+                        prev_hidden_left = h_final
+                        current_hidden_row[c][col] = h_final
 
                     pass
+
+                prev_hidden_row = current_hidden_row
 
 
             return im
