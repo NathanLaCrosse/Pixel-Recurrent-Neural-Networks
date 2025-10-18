@@ -96,7 +96,7 @@ training_args = {
     "epochs" : 100,
     "batch_size" : 1,
     "im_rows" : 36,
-    "net" : ConditionalRowRNN(embed_size=32, hidden_size=64, num_layers=5, channels=3, device=device),
+    "net" : ConditionalRowRNN(embed_size=64, hidden_size=96, num_layers=5, channels=3, device=device),
     "dat" : md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train"),
     "file_name" : "Models/NewInfill.pt",
     "device" : device,
@@ -108,48 +108,71 @@ training_args = {
     "max_infill_pixels" : 36 * 36 * 0.6,
     "infill_level_probs" : [0.5, 0.25, 0.25]
 }
-train_model(training_args)
+# train_model(training_args)
 
 # ---------- Testing Code ----------
 
-# net = training_args["net"]
-# state_dict = torch.load("Models/NewInfill.pt", map_location=torch.device('cpu'))
-# net.load_state_dict(state_dict)
-# net.eval()
+net = training_args["net"]
+state_dict = torch.load("Models/NewInfillAdamGood.pt", map_location=torch.device('cpu'))
+net.load_state_dict(state_dict)
+net.eval()
 
-# grid_size = 36
-# infill_pixel_count = 30
+grid_size = 36
+infill_pixel_count = 30
 
-# # Classic reconstruction. (Sanity Check)
-# dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
-# with torch.no_grad():
-#     for im in dat:
-#         obstructed = im.view(1, 3, grid_size+1, grid_size+1)
-#         for _ in range(infill_pixel_count):
-#             rand_row = np.random.randint(0,grid_size)
-#             rand_col = np.random.randint(0,grid_size)
+# Classic reconstruction. (Sanity Check)
+dat = md.PixelDataset(filepath="Datasets/Cartoons/Test", color=True)
+with torch.no_grad():
+    for im in dat:
+        reconstructed = torch.clone(im.view(1, 3, grid_size+1, grid_size+1))
+        # for _ in range(infill_pixel_count):
+        #     rand_row = np.random.randint(0,grid_size)
+        #     rand_col = np.random.randint(0,grid_size)
+        #
+        #     obstructed[:, :, rand_row+1:rand_row+2, rand_col+1:rand_col+2] = 257
 
-#             obstructed[:, :, rand_row+1:rand_row+2, rand_col+1:rand_col+2] = 257
+        mask = np.full((36,36), fill_value=False)
+        mask[15:20, 15:20] = True
+        # mask[3:, 23:] = True
+        it = 0
+        limit = 10000
 
-#         # obstructed[:, :, 3:, 18:] = 257
+        for row in range(36):
+            for col in range(36):
+                if mask[row, col] and it < limit:
+                    prompt = torch.clone(reconstructed)
+                    prompt[:, :, row+1, col+1] = 257
 
-#         # obstructed[:,:,15:25,15:25] = 257
+                    # logits = net(prompt)
+                    # pred = torch.argmax(logits, dim=4)
 
-#         # Convert logits to an image
-#         logits = net(obstructed)
-#         pred = torch.argmax(logits, dim=4)
-#         pred = pred[0, :, 1:, 1:]
-#         im = im.view(1, 3, grid_size + 1, grid_size + 1)[0, :, 1:, 1:]
-#         pred = pred.permute(1, 2, 0)
-#         im = im.permute(1, 2, 0).clamp(0, 255)
+                    pred = net(prompt, temp=1)
 
-#         fig, ax = plt.subplots(1, 2)
-#         ax[0].imshow(im)
-#         ax[1].imshow(pred)
+                    reconstructed[:, :, row+1, col+1] = pred[:, :, row+1, col+1]
 
-#         # # Generate some samples to look at
-#         # for s in range(4):
-#         #     samp = generate_with_temperature(net, obstructed, 2)
-#         #     ax[1, s].imshow(samp[:, 1:, :])
+                    it += 1
+                elif mask[row, col]:
+                    reconstructed[:, :, row+1, col+1] = 257
 
-#         plt.show()
+        # pred = reconstructed[0, :, 1:, 1:]
+        # obstructed[:,:,15:25,15:25] = 257
+
+        # Convert logits to an image
+        logits = net(reconstructed)
+        pred = torch.argmax(logits, dim=4)
+        pred = pred[0, :, 1:, 1:]
+
+        im = im.view(1, 3, grid_size + 1, grid_size + 1)[0, :, 1:, 1:]
+        pred = pred.permute(1, 2, 0)
+        im = im.permute(1, 2, 0).clamp(0, 255)
+
+        fig, ax = plt.subplots(1, 2)
+        ax[0].imshow(im)
+        ax[1].imshow(pred)
+
+        # # Generate some samples to look at
+        # for s in range(4):
+        #     samp = generate_with_temperature(net, obstructed, 2)
+        #     ax[1, s].imshow(samp[:, 1:, :])
+
+        plt.show()

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import numpy as np
 
+
 class RowRNN(nn.Module):
     def __init__(self, embed_size=64, hidden_size=32, num_layers=3, channels=1, device=torch.device('cpu')):
         super(RowRNN, self).__init__()
@@ -115,7 +116,7 @@ class ConditionalRowRNN(nn.Module):
 
         self.device = device
 
-    def forward(self, x, target=None):
+    def forward(self, x, target=None, temp=None):
         batch_size, channels, rows, cols = x.size()
 
         # Embed and add row signature to the data
@@ -161,7 +162,13 @@ class ConditionalRowRNN(nn.Module):
         if target is not None:
             red_embed = self.embeddings[0](target[:, 0, :, :]) # Teacher forcing
         else:
-            red_pred = torch.argmax(red_logits, dim=3)
+            if temp is None:
+                red_pred = torch.argmax(red_logits, dim=3)
+            else:
+                dist = red_logits / temp
+                dist = F.softmax(dist.view(-1, 258), dim=1)
+                sample = torch.multinomial(dist, num_samples=1)
+                red_pred = sample.view(batch_size, rows, cols)
             red_embed = self.embeddings[0](red_pred)
 
         # Generate green based off of results from red
@@ -169,13 +176,158 @@ class ConditionalRowRNN(nn.Module):
         if target is not None:
             green_embed = self.embeddings[1](target[:, 1, :, :])
         else:
-            green_pred = torch.argmax(green_logits, dim=3)
+            if temp is None:
+                green_pred = torch.argmax(green_logits, dim=3)
+            else:
+                dist = green_logits / temp
+                dist = F.softmax(dist.view(-1, 258), dim=1)
+                sample = torch.multinomial(dist, num_samples=1)
+                green_pred = sample.view(batch_size, rows, cols)
             green_embed = self.embeddings[1](green_pred)
 
         # Finally, determine blue channel based off of both previous channels
         blue_logits = self.to_blue(torch.cat([output_list[2], red_embed, green_embed], dim=3))
 
+        if temp is not None:
+            dist = blue_logits / temp
+            dist = F.softmax(dist.view(-1, 258), dim=1)
+            sample = torch.multinomial(dist, num_samples=1)
+            blue_pred = sample.view(batch_size, rows, cols)
+
+            return torch.stack([red_pred, green_pred, blue_pred], dim=1)
+
         return torch.stack([red_logits, green_logits, blue_logits], dim=1)
+
+
+
+
+
+
+class GenerativeRowRNN(nn.Module):
+    def __init__(self, embed_size=64, hidden_size=32, num_layers=1, channels=3, device=torch.device('cpu')):
+        super(GenerativeRowRNN, self).__init__()
+        self.embed_size = embed_size
+        self.hidden_size = hidden_size
+        self.channels = channels
+        self.num_layers = num_layers
+
+        # Pixel Intensity -> Embedding Vector
+        self.embeddings = nn.ModuleList(
+            [nn.Embedding(257, embed_size) for i in range(channels)]
+        )
+        # Separate GRU for each channel, conditioned on each other
+        self.channel_grus = nn.ModuleList(
+            [nn.GRU(input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, batch_first=True) for i in
+             range(channels)]
+        )
+
+        # # Embedding a previous hidden in a given color channel to something the current step can combine with the input
+        # self.hidden_to_embeds = nn.ModuleList(
+        #     [nn.Linear(self.hidden_size + self.embed_size + 2, self.embed_size + 2) for i in range(channels)]
+        # )
+        self.h_comb = nn.ModuleList([
+            nn.Linear(self.hidden_size * 2, self.hidden_size) for i in range(channels)
+        ])
+        self.x_comb = nn.ModuleList([
+            nn.Linear(self.embed_size * 2, self.embed_size) for i in range(channels)
+        ])
+
+        self.to_red = nn.Linear(hidden_size, 257)
+        self.to_green = nn.Linear(hidden_size + self.embed_size, 257)
+        self.to_blue = nn.Linear(hidden_size + self.embed_size * 2, 257)
+
+        self.device = device
+
+    def forward(self, x, target=None):
+        batch_size, channels, rows, cols = x.size()
+
+        logits = [None for row in range(rows-1)]
+        prev_hidden_row = [[torch.zeros((batch_size, self.num_layers, self.hidden_size), device=self.device) for col in range(cols - 1)] for c in range(channels)]
+
+        for row in range(rows-1):
+            current_hidden_row = [[None for col in range(cols-1)] for c in range(channels)]
+            prev_hidden_left = torch.zeros((batch_size, self.num_layers, self.hidden_size), device=self.device)
+
+            column_logits = [None for p in range(cols-1)]
+
+            for col in range(cols-1):
+                prev_color_embed = []
+
+                comb_color_logits = [None for l in range(channels)]
+
+                for c in range(channels):
+                    # Gather previous x data from above and below
+                    left_x = self.embeddings[c](x[:, c, row+1, col])
+                    above_x = self.embeddings[c](x[:, c, row, col+1])
+                    current_x = torch.cat([left_x, above_x], dim=1)
+                    current_x = self.x_comb[c](current_x)
+
+                    # Gather previous hidden data from above and below
+                    current_h = torch.cat([prev_hidden_left, prev_hidden_row[c][col]], dim=2)
+                    current_h = self.h_comb[c](current_h)
+
+                    # Compute GRU output
+                    _, h_final = self.channel_grus[c](current_x.view(batch_size, 1, self.embed_size),
+                                                      current_h.view(self.num_layers, batch_size, self.hidden_size))
+                    h_final = h_final.permute(1, 0, 2)
+
+                    # Next up - logits conversion - based on color channel
+                    colored_logits = None
+                    if c == 0:
+                        colored_logits = self.to_red(h_final[:, -1, :])
+                    elif c == 1:
+                        colored_logits = self.to_green(torch.cat([h_final[:, -1, :]] + prev_color_embed, dim=1))
+                    else:
+                        colored_logits = self.to_blue(torch.cat([h_final[:, -1, :]] + prev_color_embed, dim=1))
+
+                    # Put our previous embedding in the queue for the next color channel
+                    # This makes colors conditional on each other
+                    prev_color_embed.append(current_x)
+                    prev_hidden_left = h_final
+                    current_hidden_row[c][col] = h_final
+
+                    # Put logits in storage
+                    comb_color_logits[c] = colored_logits
+
+                column_logits[col] = torch.stack(comb_color_logits, dim=1)
+
+            logits[row] = torch.stack(column_logits, dim=2)
+            prev_hidden_row = current_hidden_row
+
+        return torch.stack(logits, dim=2)
+
+
+
+        # Combine logits
+
+    def predict(self, x, mask, temp):
+        # Predict pixels of an image whenever mask is false
+        # Assumes x has already been padded with start-of-sequence values
+        with torch.no_grad():
+            batch_size, channels, rows, cols = x.size()
+            im = torch.zeros((batch_size, channels, rows-1, cols-1))
+
+            # Append start-of sequence
+            # im[:, :, 1:, 1:] = x
+            # im[:, :, 0, :] = 256
+            # im[:, :, :, 0] = 256
+
+            prev_hidden_row = [[torch.zeros((batch_size, self.num_layers, self.hidden_size),
+                                            device=self.device) for col in range(cols - 1)]
+                                            for c in range(channels)]
+
+            for row in range(rows-1):
+                current_hidden_row = [[None for col in range(cols - 1)] for c in range(channels)]
+                prev_hidden_left = torch.zeros((batch_size, self.num_layers, self.hidden_size), device=self.device)
+
+                for col in range(cols-1):
+
+
+                    pass
+
+
+            return im
+
 
 
 
@@ -287,9 +439,9 @@ class OmniRowRNN(nn.Module):
 
 
 if __name__ == "__main__":
-    net = RowRNN(channels=3, hidden_size=32)
+    net = GenerativeRowRNN(channels=3, hidden_size=32, num_layers=5)
 
-    sample_input = torch.randint(0, 258, (5, 3, 14, 14))
+    sample_input = torch.randint(0, 257, (5, 3, 14, 14))
 
     logits = net(sample_input)
 
