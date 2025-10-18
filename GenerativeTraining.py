@@ -12,13 +12,13 @@ import numpy as np
 from NetworkArchitecture import RowRNN, OmniRowRNN, GenerativeRowRNN
 
 epochs = 10
-batch_size = 1
-save = "Models/Generative.pt"
+batch_size = 64
+save = "Models/GenerativeNathan.pt"
 
 dat = md.PixelDataset(color=True, filepath="Datasets/Cartoons/Train")
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-net = GenerativeRowRNN(embed_size=64, hidden_size=64, num_layers=3, device=device)
+net = GenerativeRowRNN(embed_size=64, hidden_size=64, num_layers=4, device=device)
 net = net.to(device)
 loss_fn = nn.CrossEntropyLoss()
 optimizer = torch.optim.Adam(net.parameters(), lr=0.001)

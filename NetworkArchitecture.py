@@ -263,7 +263,7 @@ class GenerativeRowRNN(nn.Module):
                     current_x = self.x_comb[c](current_x)
 
                     # Inject positional data
-                    pos_dat = torch.tensor([row, col]).repeat(repeats=batch_size).view(batch_size, 2)
+                    pos_dat = torch.tensor([row, col], device=self.device).repeat(batch_size).view(batch_size, 2)
                     current_x = torch.cat([current_x, pos_dat], dim=1)
 
                     # Gather previous hidden data from above and below
@@ -271,7 +271,7 @@ class GenerativeRowRNN(nn.Module):
                     current_h = self.h_comb[c](current_h)
 
                     # Compute GRU output
-                    _, h_final = self.channel_grus[c](current_x.view(batch_size, 1, self.embed_size),
+                    _, h_final = self.channel_grus[c](current_x.view(batch_size, 1, self.embed_size+2),
                                                       current_h.view(self.num_layers, batch_size, self.hidden_size))
                     h_final = h_final.permute(1, 0, 2)
 
