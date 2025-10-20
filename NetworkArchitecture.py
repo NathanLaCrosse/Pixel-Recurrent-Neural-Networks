@@ -12,7 +12,20 @@ import numpy as np
 
 
 class RowRNN(nn.Module):
+    """
+    The RowRNN class implements a basic recurrent neural network to predict pixel intensities given some
+    original pixels and pixels marked for infill.
+    """
     def __init__(self, embed_size=64, hidden_size=32, num_layers=3, channels=1, device=torch.device('cpu')):
+        """
+        Initializes a RowRNN object
+
+        :param embed_size: Size of pixel embedding space
+        :param hidden_size: Size of hidden vector used in the GRU
+        :param num_layers: Number of layers in the GRU
+        :param channels: 1 if doing grayscale images, 3 if doing normal colors
+        :param device: Device to put the neural network on
+        """
         super(RowRNN, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
@@ -87,7 +100,21 @@ class RowRNN(nn.Module):
 
 
 class ConditionalRowRNN(nn.Module):
+    """
+    The Conditional class implements a recurrent neural network to predict pixel intensities given some
+    original pixels and pixels marked for infill. Makes the color channels conditional on each other, which
+    results in more consistent and expected color use.
+    """
     def __init__(self, embed_size=64, hidden_size=32, num_layers=3, channels=1, device=torch.device('cpu')):
+        """
+        Initializes a ConditionalRowRNN object
+
+        :param embed_size: Size of pixel embedding space
+        :param hidden_size: Size of hidden vector used in the GRU
+        :param num_layers: Number of layers in the GRU
+        :param channels: 1 if doing grayscale images, 3 if doing normal colors
+        :param device: Device to put the neural network on
+        """
         super(ConditionalRowRNN, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
@@ -117,6 +144,15 @@ class ConditionalRowRNN(nn.Module):
         self.device = device
 
     def forward(self, x, target=None, temp=None):
+        """
+        Predict output logits based on an input x
+
+        :param x: A batch of input images of size (batch_size, channels, rows, cols)
+        :param target: A batch of target images to apply teacher forcing with
+        :param temp: Temperature to use in pixel prediction. Temp=0 by default
+        :return: logits: A (batch_size, channels, rows, cols, 258) tensor containing predictions for every pixel in x
+        """
+
         batch_size, channels, rows, cols = x.size()
 
         # Embed and add row signature to the data
@@ -204,7 +240,21 @@ class ConditionalRowRNN(nn.Module):
 
 
 class GenerativeRowRNN(nn.Module):
+    """
+    A framework for a generative recurrent neural network model. While not presented in the project, this
+    could possibly generate better infills than the current model and provide several unique outputs. However,
+    training times are far longer with this model.
+    """
     def __init__(self, embed_size=64, hidden_size=32, num_layers=1, channels=3, device=torch.device('cpu')):
+        """
+                Initializes a ConditionalRowRNN object
+
+                :param embed_size: Size of pixel embedding space
+                :param hidden_size: Size of hidden vector used in the GRU
+                :param num_layers: Number of layers in the GRU
+                :param channels: 1 if doing grayscale images, 3 if doing normal colors
+                :param device: Device to put the neural network on
+                """
         super(GenerativeRowRNN, self).__init__()
         self.embed_size = embed_size
         self.hidden_size = hidden_size
@@ -221,10 +271,7 @@ class GenerativeRowRNN(nn.Module):
              range(channels)]
         )
 
-        # # Embedding a previous hidden in a given color channel to something the current step can combine with the input
-        # self.hidden_to_embeds = nn.ModuleList(
-        #     [nn.Linear(self.hidden_size + self.embed_size + 2, self.embed_size + 2) for i in range(channels)]
-        # )
+        # Linear transformations to combine information from above and to the left
         self.h_comb = nn.ModuleList([
             nn.Linear(self.hidden_size * 2, self.hidden_size) for i in range(channels)
         ])
@@ -239,6 +286,11 @@ class GenerativeRowRNN(nn.Module):
         self.device = device
 
     def forward(self, x):
+        """
+        Forward pass of the GenerativeRowRNN
+        :param x: An input image tensor of size (input_size, channels, rows, col)
+        :return: logits: Prediction tensor of size (input_size, channels, rows, cols, 258)
+        """
         batch_size, channels, rows, cols = x.size()
 
         logits = [None for row in range(rows-1)]
@@ -300,11 +352,15 @@ class GenerativeRowRNN(nn.Module):
 
         return torch.stack(logits, dim=2)
 
-
-
-        # Combine logits
-
     def predict(self, x, mask, temp=0.01):
+        """
+        Predict pixels of an image whenever mask is False.
+
+        :param x: Input image of size (batch_size, channels, rows, cols). Expected to have start-of-sequence padding
+        :param mask: True/False mask of size (rows-1, cols-1)
+        :param temp: Temperature of the predictions
+        :return: im: Outputs a predicted image of size (batch_size, channels, rows, cols)
+        """
         # Predict pixels of an image whenever mask is false
         # Assumes x has already been padded with start-of-sequence values
         with torch.no_grad():
@@ -312,7 +368,6 @@ class GenerativeRowRNN(nn.Module):
             im = torch.zeros((batch_size, channels, rows, cols), requires_grad=False, dtype=torch.long)
 
             # Append start-of sequence
-            # im[:, :, 1:, 1:] = x
             im[:, :, 0, :] = 256
             im[:, :, :, 0] = 256
 
@@ -380,8 +435,6 @@ class GenerativeRowRNN(nn.Module):
                         prev_hidden_left = h_final
                         current_hidden_row[c][col] = h_final
 
-                    pass
-
                 prev_hidden_row = current_hidden_row
 
 
@@ -395,7 +448,7 @@ class GenerativeRowRNN(nn.Module):
 
 
 
-
+# Testing code
 if __name__ == "__main__":
     net = GenerativeRowRNN(channels=3, hidden_size=32, num_layers=5)
 
