@@ -7,6 +7,11 @@ import cv2
 
 # MNIST Images are 28 x 28 pixels
 def load_mnist(filepath, samples=60000):
+    """
+    :param filepath: filepath to MNIST dataset
+    :param samples: How many images to load
+    :return: labels of MNIST numbers along with images
+    """
     mnist_train = pd.read_csv(filepath)
     labels = []
     images = []
@@ -25,9 +30,10 @@ def load_mnist(filepath, samples=60000):
 
 def to_patches(image, prc_len, one_hot):
     """
-    Assumptions: Example Image is always square, Image is grayscale
-    prc_len: Length of patch rows and columns
-    patch_size: Number of pixels per patch
+    Legacy:: No longer used
+    :param image: np.ndarray (28*28)
+    :param prc_len: length and width of the patches
+    :param one_hot: True - encode image as one-hot vector False - return normal image
     """
 
     patch_len = int(len(image[0]) / prc_len)
@@ -37,34 +43,37 @@ def to_patches(image, prc_len, one_hot):
     patched_image = patched_image.transpose(0, 2, 1, 3)
     patched_image = patched_image.reshape(prc_len, prc_len, patch_size)
     if one_hot:
-        # return F.one_hot(torch.tensor(patched_image, dtype=torch.long), 256)
         return torch.tensor(patched_image, dtype=torch.long)
     else:
         return torch.tensor((patched_image / 255) * 2 - 1, dtype=torch.float32)
 
-
-        # im = torch.tensor(self.raw_images[item], dtype=torch.long)
-        # start_of_col = torch.ones((28, 1), dtype=torch.long) * 256
-        # im = torch.cat((start_of_col, im), dim=1)
-        # return im.view(1, 28, 29)
-
 def process_image(path, size, color):
     if color:
+        # Reads image, resizes to scale, coverts to color
         image = cv2.imread(path)[100:400, 100:400, ::-1]
         image = torch.tensor(cv2.resize(image, (size, size)), dtype=torch.long)
+
+        # Add start of row and column with value 256
         start_of_col = torch.ones((size, 1, 3), dtype=torch.long) * 256
         start_of_row = torch.ones((1, size+1, 3), dtype=torch.long) * 256
         image = torch.cat((start_of_col, image), dim=1)
         image = torch.cat((start_of_row, image), dim=0)
+
+        # Returns image with color channel first
         return image.permute(2, 0, 1)
     else:
+        # Reads image, resizes to scale, converts to grayscale
         image = cv2.imread(path, cv2.IMREAD_GRAYSCALE)[100:400, 100:400]
         image =  torch.tensor(cv2.resize(image, (size, size)), dtype=torch.long)
+
+        # Add start of column with value 256
         start_of_col = torch.ones((size, 1), dtype=torch.long) * 256
         image = torch.cat((start_of_col, image), dim=1)
+
+        # Returns image with color channel first
         return image.view(1, size, size + 1)
 
-
+# Creates array of image directories
 def generate_directory_list(filepath, samples):
     directories = []
     for root, dirs, files in os.walk(filepath):
@@ -78,6 +87,12 @@ def generate_directory_list(filepath, samples):
 
 
 class PixelDataset(Dataset):
+    """
+    Dataset class for the pixel recurrent neural network
+    :param resize: size of output images
+    :param color: True - RGB, False - Grayscale
+    :param samples: number of images stored into dataset
+    """
 
     def __init__(self, filepath = 'Datasets/Cartoons', resize = 36, color = False, samples=1000000):
         self.directories = generate_directory_list(filepath, samples)
@@ -91,7 +106,7 @@ class PixelDataset(Dataset):
         image = self.directories[idx]
         return process_image(image, self.resize, self.color)
 
-
+# Legacy set up for the MNIST Dataset
 class MNISTPixelDataset(Dataset):
 
     def __init__(self, filepath = 'Datasets/mnist_train.csv', prc_len = 7, samples=1000000):
