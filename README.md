@@ -35,3 +35,75 @@ More concretely, the process is as follows:
 As a side note, the final model uses a multi-layered GRU. In the high-up level of this commentary, everything said beforehand works the same. The only thing that changes is there is an extra dimension that the GRU is operating across that is hidden since we only consider the hidden vector produced by the GRU. This allows the model to become more expressive, which improves the model's ability to successfully model the problem at hand.
 
 ## Results:
+
+**Testing Infill on MNIST**
+- Removed a huge chunk of information  
+- Decent at redrawing lines  
+- Some data imbalance (not smooth transitions)
+  
+| Masked Input | Reconstruction |
+|---------------|----------------|
+| <img width="204" height="194" alt="MNIST0Before" src="https://github.com/user-attachments/assets/50337c61-6f07-4fb9-874b-bf4a4084c4f9" />  |<img width="203" height="194" alt="MNIST0After" src="https://github.com/user-attachments/assets/83cf5918-6cab-433b-9e6a-bddf5b72666e" /> |
+| <img width="208" height="193" alt="MNIST4Before" src="https://github.com/user-attachments/assets/21220534-4eee-4fc9-87be-853700e91524" />  | <img width="201" height="193" alt="MNIST4After" src="https://github.com/user-attachments/assets/a463aaad-1f91-4e0c-b706-1a6d3f2334f4" />
+
+**Observations**  
+- The model was able to reconstruct missing image regions fairly well despite losing major structural information.  
+- MNIST was chosen due to its 28×28 grayscale simplicity - perfect for early validation before moving to color datasets.
+- Because of MNIST being dominantly either black or white pixels, it leads to the data imbalance.
+
+---
+
+ **Testing Infill on Google Cartoon Dataset**
+- Removed about half of all total pixels (in different ways)
+- Introduced colors
+- Trained by 'removing' pixels slowly
+- Single directional training (top-left → bottom-right)
+
+<p align="center">
+  <img width="360" height="180" alt="Picture8" src="https://github.com/user-attachments/assets/b8bda6b3-dd6b-4558-916f-daa0e4e2b2cf" />
+  <img width="360" height="180" alt="Picture9" src="https://github.com/user-attachments/assets/62b4272d-7117-4d5e-9636-802ec36f8f4e" />
+</p>
+
+<p align="center">
+  <img width="340" height="165" alt="Picture10" src="https://github.com/user-attachments/assets/89f75b7d-9142-43d4-98aa-001e77951f1c" />
+  <img width="500" height="165" alt="Picture11" src="https://github.com/user-attachments/assets/ca934422-3ed3-4a87-bcfc-5d149ebf7d98" />
+</p>
+
+**Observations**
+- Color infilling worked fairly well despite the dataset being 3× larger than the black and white MNIST.
+- Some “chromatic abnormalities” were noted where channels did not align perfectly.
+- Overall, this represented a significant improvement and established a path toward colored infill generation.
+
+---
+
+**Final Results Based on New Architecture**
+- Improved reconstruction accuracy and consistency across different missing data ratios.
+- Introduced temperature scaling for sampling variety.
+- Tested under multiple mask configurations.
+
+<p align="center">
+  <img width="310" height="250" alt="30% Removed" src="https://github.com/user-attachments/assets/e55a788f-b7c8-43a3-a0a5-1cf0ffc0d442" />
+  <img width="345" height="245" alt="65% Removed" src="https://github.com/user-attachments/assets/f53fd2b3-7fe6-4a5c-90ce-c04f172ce0f1" />
+  <img width="315" height="235" alt="Bottom Corner Removed" src="https://github.com/user-attachments/assets/cd062f05-8b9a-45d3-8f9d-e31e0ed5d4b2" />
+</p>
+
+<p align="center">
+  <img width="480" height="275" alt="Bottom Half Removed" src="https://github.com/user-attachments/assets/33b39225-074c-4308-a5c2-24f153edb8b9" />
+  <img width="480" height="275" alt="Left Side Removed" src="https://github.com/user-attachments/assets/8ea968ac-bba1-4032-8d1f-5194260a7763" />
+</p>
+
+**Observations**
+- This model produced more natural variations and did a great job infilling.
+- Even at high levels of pixel removal (>65%), the model still produced coherent results.
+- Errors occur when the infilling is given nothing to work with (as seen in *Left Side Removed*).
+
+---
+
+**The Mean Result**
+> The mean result represents the averaged reconstruction output across all test samples.  
+> This showcases the model’s generalization ability and its bias toward common facial features.
+
+
+<img width="300" height="280" alt="The mean" src="https://github.com/user-attachments/assets/a15031b4-c528-447e-b337-5d42d9b601cb" />
+
+
