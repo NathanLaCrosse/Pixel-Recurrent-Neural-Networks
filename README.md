@@ -2,7 +2,13 @@
 In this repository, we explore the use of pixel recurrent networks to solve the infill problem.
 
 ## Dataset:
+The datasets used were pulled from Kaggle, in particular:
+MNIST Dataset: https://www.kaggle.com/datasets/oddrationale/mnist-in-csv
+Google Cartoon Faces: https://www.kaggle.com/datasets/brendanartley/cartoon-faces-googles-cartoon-set
 
+The MNIST Dataset was used through most of the project due to training faster in comparison to the cartoon dataset. This project started with classification and was built upon until we created the final infilling model. Around when the architecture was updated to support infilling was when the dataset was switched to the cartoon dataset. 
+
+The images, once requested, are altered in preparation for training. The images are loaded in as BGR due to cv2 reading images this way, so the color channels are flipped on input to RGB. To add, the 500x500 images are centered cropped down to 300x300 to remove much of the white space. The image is then resized down to 36x36 and lastly a row and column with color values 256 which are the number designated for start of string. Lastly the image is reconstructed into the format (Color, Row, Column). This reconstruction is done due to pytorch expecting images to be read in this format.
 
 ## Network Architecture:
 Throughout the project, a lot of different types of architecture were considered. The general theme was the use of a RowRNN style approach - however even this approach has a lot of different choices that can be made. Let's start with the basics: how does a RowRNN work?
